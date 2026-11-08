@@ -83,6 +83,7 @@ function authPage(kind) {
     const f = e.target; const msg = document.getElementById('msg'); const btn = f.querySelector('button');
     const d = Object.fromEntries(new FormData(f)); btn.disabled = true;
     try {
+      if (!isLogin && String(d.password || '').length < 10) throw new Error('Adgangskoden skal være mindst 10 tegn');
       if (isLogin) {
         const r = await api('POST', '/api/auth/login', d); S.user = r.user;
         go(r.user.role === 'admin' ? '/dashboard' : '/shop');
@@ -391,7 +392,7 @@ async function dealersPage() {
     ${sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `<button class="btn small danger" data-a="reject" data-id="${d.id}">Afvis</button>`)}
     ${sect('Afviste', 'rejected', by('rejected'), (d) => `<button class="btn small outline" data-a="approve" data-id="${d.id}">Godkend</button>`)}
     <form id="af" class="formcard" novalidate><h2>Tilføj Administrator</h2><p class="muted" style="margin-top:0">Kun administratorer kan oprette nye administratorer.</p>
-      <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 10 tegn)</label><input type="password" name="password" minlength="10" required autocomplete="new-password"></div></div>
+      <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 4 tegn)</label><input type="password" name="password" minlength="4" required autocomplete="new-password"></div></div>
       <button class="btn" style="margin-top:1rem">Opret Administrator</button><div id="am"></div></form>`);
   document.querySelector('.main').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-a]'); if (!b) return;
@@ -399,7 +400,9 @@ async function dealersPage() {
   });
   sel('#af').addEventListener('submit', async (e) => {
     e.preventDefault();
-    try { const r = await api('POST', '/api/admin/admins', Object.fromEntries(new FormData(e.target))); e.target.reset(); sel('#am').innerHTML = `<div class="ok">Administrator ${esc(r.admin.email)} er oprettet.</div>`; } catch (err) { showErr(sel('#am'), err); }
+    const fields = Object.fromEntries(new FormData(e.target));
+    if (String(fields.password || '').length < 4) return showErr(sel('#am'), new Error('Adgangskoden skal være mindst 4 tegn'));
+    try { const r = await api('POST', '/api/admin/admins', fields); e.target.reset(); sel('#am').innerHTML = `<div class="ok">Administrator ${esc(r.admin.email)} er oprettet.</div>`; } catch (err) { showErr(sel('#am'), err); }
   });
 }
 
@@ -503,11 +506,12 @@ async function agreementPage(id) {
 
 // ---------- password ----------
 function passwordPage() {
+  const minPw = Number(S.user.password_min_length) || (S.user.role === 'admin' ? 4 : 10);
   const inner = `<div class="pagehead"><h1>Skift adgangskode</h1></div>
     <form id="pf" class="formcard" novalidate style="max-width:32rem">
       <p class="muted" style="margin-top:0">Den nye adgangskode gælder med det samme og bevares, når serveren genstarter.</p>
       <label>Nuværende adgangskode</label><input type="password" name="current_password" required autocomplete="current-password">
-      <label>Ny adgangskode (min. 10 tegn)</label><input type="password" name="new_password" required minlength="10" autocomplete="new-password">
+      <label>Ny adgangskode (min. ${minPw} tegn)</label><input type="password" name="new_password" required minlength="${minPw}" autocomplete="new-password">
       <button class="btn" type="submit">Gem ny adgangskode</button>
       <div id="pm"></div>
     </form>`;
@@ -520,6 +524,7 @@ function passwordPage() {
   document.getElementById('pf').addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target));
+    if (String(d.new_password || '').length < minPw) return showErr(document.getElementById('pm'), new Error(`Adgangskoden skal være mindst ${minPw} tegn`));
     try {
       await api('POST', '/api/auth/password', { current_password: d.current_password, new_password: d.new_password });
       e.target.reset();

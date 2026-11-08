@@ -6,13 +6,18 @@ This runbook does not send mail, does not create a dealer with customer data, an
 
 The authoring environment for this branch did not have a Docker daemon. The Node process, not a container, was tested for loopback bind, bootstrap, restart, and purchase races. Start the container on the host only after that review. Confirm `ss` output yourself before reloading Caddy.
 
+The Compose service runs as root on the host network so it can read `/srv/autob2b/secrets.env` when that file is `root:root` mode `0600`. That is not an unprivileged container. See `deploy/OPERATOR.md`.
+
 ## 1. Place the release
 
 Use the reviewed commit archive, not a merge commit and not an older checkout. The archive name is `autob2b-release-<full-sha>.tar.gz`. Check it before extracting:
 
 ```bash
 sha256sum -c autob2b-release-<full-sha>.tar.gz.sha256
-tar -tzf autob2b-release-<full-sha>.tar.gz | grep -E 'node_modules|\.git|sqlite|secrets\.env|ADMIN_LOGIN|LOGIN-INFO|uploads/.+' && echo 'UNEXPECTED PATH' || echo 'archive path check ok'
+bad=$(tar -tzf autob2b-release-<full-sha>.tar.gz | grep -E 'node_modules/|(^|/)\.git/|\.sqlite($|-)|(^|/)secrets\.env$|ADMIN_LOGIN\.txt|LOGIN-INFO\.txt' || true)
+uploads=$(tar -tzf autob2b-release-<full-sha>.tar.gz | grep -E 'uploads/.+' | grep -v -E '(^|/)uploads/\.gitkeep$' || true)
+if [ -n "$bad$uploads" ]; then echo 'UNEXPECTED PATH'; printf '%s\n' "$bad" "$uploads"; exit 1; fi
+echo 'archive path check ok'
 sudo mkdir -p /srv/autob2b/releases
 sudo tar -xzf autob2b-release-<full-sha>.tar.gz -C /srv/autob2b/releases
 sudo mv /srv/autob2b/releases/autob2b /srv/autob2b/releases/<full-sha>

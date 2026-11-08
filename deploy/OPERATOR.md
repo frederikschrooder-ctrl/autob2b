@@ -35,7 +35,7 @@ A Node.js security release was scheduled for 2026-11-11. Stay on 24.22.2 for thi
 | Database file | `/data/autob2b.sqlite` (`DB_FILE`) |
 | Upload directory | `/uploads` (`UPLOAD_DIR`) |
 
-The compose file uses host networking and does not publish a port. `ENFORCE_LOOPBACK=1` makes the process exit if `HOST` is not a loopback address. Caddy on the same host must proxy to `127.0.0.1:10000`. Do not use the name `localhost` in the proxy address: it can resolve to `::1`, and this process does not listen on IPv6.
+The compose file uses host networking and does not publish a port. `ENFORCE_LOOPBACK=1` makes the process exit unless `HOST` is exactly `127.0.0.1`. `localhost` and `::1` are refused so the process cannot listen only on IPv6. Caddy on the same host must proxy to `127.0.0.1:10000`.
 
 ## Non-secret environment
 
@@ -56,7 +56,7 @@ Set by `docker-compose.yml`. Do not put passwords in this list or in the shell h
 
 `docker compose` must not use `env_file:` for the password. The password stays in the mounted file so it is not copied into the compose service environment.
 
-The container runs as root. That is deliberate: the secrets file is `root:root` mode `0600`, and a non-root user could not read it. The process still binds loopback only. Anyone who can run Docker on the host is effectively root.
+The container runs as root on the host network. That is required so it can read a `root:root` mode `0600` secrets file. It is not an unprivileged process. A compromise of the Node process is root inside the host network namespace: it can open the mounted data, uploads, and secrets, and it can attempt other local connections. `ENFORCE_LOOPBACK=1` still refuses to listen on anything except `127.0.0.1`. The secrets file must be owned by the user that runs the process; in this Compose file that user is root, and a mode `0600` file owned by another uid is refused. Dropping to a non-root user would require making the secrets file readable by that user, which this contract does not do. Do not treat the container as a sandbox. Anyone who can run Docker on the host is effectively root.
 
 ## Secrets file
 
@@ -73,7 +73,9 @@ BOOTSTRAP_ADMIN_NAME=<display name, optional>
 Rules enforced by the process:
 
 - Both email and password are required to create an account. A missing or empty value does not fall back to a built-in account.
-- The password must be 10 to 200 characters, must not equal the email, and must not be a placeholder such as `changeme`, `password`, or `password123`.
+- An administrator password must be 4 to 200 characters. Longer passwords are allowed. Passwords of 0–3 characters are refused for bootstrap, for changing an admin password, and for creating another administrator.
+- A dealer password stays at 10 to 200 characters. Dealer registration and dealer password change do not use the administrator minimum.
+- The password must not equal the email, must not be a placeholder such as `changeme`, `password`, or `password123`, and must not be either password that was published in earlier commits of this repository. Those two values are rejected by a SHA-256 denylist. Their plaintext is not in this tree. Choose a new password.
 - The file is rejected if group or other permission bits are set, if it is larger than 16 KiB, or if it contains any other key.
 - The password and email are not written to stdout or stderr.
 - Do not pass the password as a `docker compose` argument, a shell argument, or a `curl` command saved in shell history.

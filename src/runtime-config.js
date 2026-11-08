@@ -4,9 +4,14 @@ const fs = require('node:fs');
 const BOOTSTRAP_KEYS = ['BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'BOOTSTRAP_ADMIN_NAME'];
 
 function assertLoopbackHost(host) {
-  const h = String(host || '');
-  if (h !== '127.0.0.1' && h !== '::1' && h !== 'localhost') {
-    throw new Error('HOST must be a loopback address (127.0.0.1). Refusing to listen on a public interface.');
+  if (String(host || '') !== '127.0.0.1') {
+    throw new Error('HOST must be the IPv4 loopback address 127.0.0.1. Refusing to listen on any other address.');
+  }
+}
+
+function assertSecretsOwner(st, uid = process.getuid()) {
+  if (st && typeof st.uid === 'number' && st.uid !== uid) {
+    throw new Error('SECRETS_FILE must be owned by the user running AutoB2B. In production that user is root.');
   }
 }
 
@@ -53,6 +58,7 @@ function loadBootstrapConfig(env) {
   if (!st.isFile()) throw new Error('SECRETS_FILE must be a regular file. If Docker created a directory, remove it and create the secrets file first.');
   if (st.size > 16384) throw new Error('SECRETS_FILE is unexpectedly large.');
   if (st.mode & 0o077) throw new Error('SECRETS_FILE permissions are too open. Use chmod 600 and owner root.');
+  assertSecretsOwner(st);
   let text;
   try { text = fs.readFileSync(file, 'utf8'); }
   catch { throw new Error('SECRETS_FILE could not be read.'); }
@@ -66,4 +72,4 @@ function loadBootstrapConfig(env) {
   };
 }
 
-module.exports = { assertLoopbackHost, resolveTrustProxy, loadBootstrapConfig, parseEnvFile, BOOTSTRAP_KEYS };
+module.exports = { assertLoopbackHost, assertSecretsOwner, resolveTrustProxy, loadBootstrapConfig, parseEnvFile, BOOTSTRAP_KEYS };

@@ -281,7 +281,7 @@ test('no public admin signup: role/status in register body are ignored; only adm
   const ok = await a.post('/api/admin/admins', { email: 'second@example.test', name: 'Second Admin', password: 'Second-admin-pass-1' });
   assert.equal(ok.status, 201);
   assert.equal(ctx.db.prepare('SELECT role FROM users WHERE email=?').get('second@example.test').role, 'admin');
-  assert.equal((await a.post('/api/admin/admins', { email: 'x@example.test', name: 'X', password: 'short' })).status, 400);
+  assert.equal((await a.post('/api/admin/admins', { email: 'x@example.test', name: 'X', password: 'abc' })).status, 400);
   // registration validation + duplicates
   assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '123', city: 'X', email: 'a@example.test', password: 'Sneaky-pass-1234' })).status, 400);
   assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '12345678', city: 'X', email: 'sneaky@example.test', password: 'Sneaky-pass-1234' })).status, 409);

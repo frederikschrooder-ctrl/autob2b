@@ -60,7 +60,7 @@ test('incomplete, weak, and placeholder bootstrap values create nobody', () => {
   for (const env of [
     { BOOTSTRAP_ADMIN_EMAIL: EMAIL },
     { BOOTSTRAP_ADMIN_PASSWORD: PW },
-    { BOOTSTRAP_ADMIN_EMAIL: EMAIL, BOOTSTRAP_ADMIN_PASSWORD: 'short' },
+    { BOOTSTRAP_ADMIN_EMAIL: EMAIL, BOOTSTRAP_ADMIN_PASSWORD: 'abc' },
     { BOOTSTRAP_ADMIN_EMAIL: EMAIL, BOOTSTRAP_ADMIN_PASSWORD: 'password123' },
     { BOOTSTRAP_ADMIN_EMAIL: 'not-an-email', BOOTSTRAP_ADMIN_PASSWORD: PW },
   ]) {

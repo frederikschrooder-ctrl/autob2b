@@ -31,7 +31,12 @@ function userFromToken(db, token) {
 }
 function parseCookies(h) {
   const out = {};
-  String(h || '').split(';').forEach((p) => { const i = p.indexOf('='); if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); });
+  String(h || '').split(';').forEach((p) => {
+    const i = p.indexOf('=');
+    if (i <= 0) return;
+    try { out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); }
+    catch { /* ignore a malformed cookie rather than failing the request */ }
+  });
   return out;
 }
 module.exports = { hashPassword, verifyPassword, createSession, destroySession, destroyUserSessions, userFromToken, parseCookies, SESSION_MS };

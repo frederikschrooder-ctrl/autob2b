@@ -1,5 +1,6 @@
 'use strict';
 const { hashPassword } = require('./auth');
+const { ADMIN_MIN, passwordPolicyError } = require('./password-policy');
 
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/;
 const PLACEHOLDERS = new Set([
@@ -43,8 +44,9 @@ function bootstrapAdmin(db, env = {}, opts = {}) {
     error('Admin bootstrap refused: email is invalid. No account was created.');
     return { created: false, reason: 'invalid-email' };
   }
-  if (password.length < 10 || password.length > 200 || PLACEHOLDERS.has(password.toLowerCase()) || password.toLowerCase() === email) {
-    error('Admin bootstrap refused: password does not meet the policy (10-200 characters, not a placeholder, not the email). No account was created.');
+  const policyError = passwordPolicyError(password, { min: ADMIN_MIN });
+  if (policyError || PLACEHOLDERS.has(password.toLowerCase()) || password.toLowerCase() === email) {
+    error('Admin bootstrap refused: password does not meet the admin policy (at least 4 characters, not a placeholder, not the email, and not a previously published password). No account was created.');
     return { created: false, reason: 'weak-password' };
   }
   if (name.length > 120 || /[\r\n]/.test(name)) {

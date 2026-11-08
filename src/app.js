@@ -7,6 +7,7 @@ const { openDb } = require('./db');
 const A = require('./auth');
 const { bootstrapAdmin } = require('./bootstrap-admin');
 const { resolveTrustProxy } = require('./runtime-config');
+const { minLengthForRole, passwordPolicyError } = require('./password-policy');
 
 const FUELS = ['el', 'hybrid', 'benzin', 'diesel'];
 const TRANSMISSIONS = ['automatic', 'manual'];
@@ -34,9 +35,9 @@ const int = (v, { min = 0, max = 1e10, required = false, field = 'felt' } = {}) 
 };
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/;
 const checkEmail = (v) => { const e = str(v, { max: 254, required: true, field: 'E-mail' }).toLowerCase(); if (!EMAIL_RE.test(e)) throw bad('E-mail er ugyldig'); return e; };
-const checkPassword = (v) => {
-  if (typeof v !== 'string' || v.length < 10) throw bad('Adgangskoden skal være mindst 10 tegn');
-  if (v.length > 200) throw bad('Adgangskoden er for lang');
+const checkPassword = (v, role) => {
+  const err = passwordPolicyError(v, { min: minLengthForRole(role) });
+  if (err) throw bad(err);
   return v;
 };
 const likeEsc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
@@ -73,7 +74,7 @@ function createApp(opts = {}) {
     if (!p) return null;
     const cars = pkgCars(p.id);
     let effective = p.status;
-    if (p.status === 'available' && cars.some((c) => c.status !== 'available')) effective = 'unavailable';
+    if (cars.length === 0 || (p.status === 'available' && cars.some((c) => c.status !== 'available'))) effective = 'unavailable';
     return { ...p, vehicles: cars, vehicle_count: cars.length, effective_status: effective };
   };
   const activeOrderFor = (vehicleId) => db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.status IN ('pending','confirmed')`).get(vehicleId);
@@ -140,6 +141,7 @@ function createApp(opts = {}) {
   function createOrder({ dealer, kind, vehicle, pkg }) {
     const isPkg = !!pkg;
     const cars = isPkg ? pkgCars(pkg.id) : [vehicle];
+    if (isPkg && cars.length === 0) throw new HttpError(409, 'Partiet indeholder ingen biler');
     const price = isPkg ? pkg.total_price : vehicle.price;
     const label = isPkg ? `Parti: ${pkg.name}` : vehicleLabel(vehicle);
     const expires = kind === 'reserve' ? new Date(now() + RESERVE_MS).toISOString() : null;
@@ -210,7 +212,7 @@ function createApp(opts = {}) {
   const wrap = (fn) => (req, res, next) => { try { const r = fn(req, res, next); if (r && r.catch) r.catch(next); } catch (e) { next(e); } };
   const idParam = (req) => { const n = Number(req.params.id); if (!Number.isInteger(n) || n < 1) throw new HttpError(404, 'Ikke fundet'); return n; };
 
-  const publicUser = (u) => u && ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, company_name: u.company_name, cvr: u.cvr, city: u.city });
+  const publicUser = (u) => u && ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, company_name: u.company_name, cvr: u.cvr, city: u.city, password_min_length: minLengthForRole(u.role) });
 
   // ---------- auth ----------
   const attempts = new Map();
@@ -249,7 +251,7 @@ function createApp(opts = {}) {
       cur.count++; attempts.set(key, cur);
       return res.status(401).json({ error: 'Forkert adgangskode' });
     }
-    const nextPw = checkPassword(req.body?.new_password);
+    const nextPw = checkPassword(req.body?.new_password, req.user.role);
     if (current === nextPw) throw bad('Den nye adgangskode skal være forskellig fra den nuværende');
     db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(A.hashPassword(nextPw), req.user.id);
     A.destroyUserSessions(db, req.user.id);
@@ -268,7 +270,7 @@ function createApp(opts = {}) {
     if (!/^\d{8}$/.test(cvr)) throw bad('CVR-nummer skal være 8 cifre');
     const city = str(b.city, { required: true, max: 80, field: 'By' });
     const email = checkEmail(b.email);
-    const password = checkPassword(b.password);
+    const password = checkPassword(b.password, 'dealer');
     if (db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) throw new HttpError(409, 'E-mail er allerede i brug');
     if (db.prepare(`SELECT 1 FROM users WHERE cvr=? AND role='dealer' AND status IN ('pending','approved')`).get(cvr)) throw new HttpError(409, 'CVR-nummer er allerede registreret');
     // role/status are NEVER taken from the request: public signup is always a pending dealer.
@@ -376,6 +378,7 @@ function createApp(opts = {}) {
     const total_price = int(b.total_price, { min: 1, max: 1e10, required: true, field: 'Total pris' });
     const description = str(b.description, { max: 2000 });
     const ids = Array.isArray(b.vehicle_ids) ? [...new Set(b.vehicle_ids.map(Number))] : [];
+    if (ids.length < 1) throw bad('Vælg mindst én bil til partiet');
     if (ids.length > 200) throw bad('For mange biler i partiet');
     ids.forEach((i) => { if (!Number.isInteger(i) || !db.prepare('SELECT 1 FROM vehicles WHERE id=?').get(i)) throw bad('Ugyldig bil i partiet'); });
     return { name, total_price, description, ids };
@@ -469,7 +472,7 @@ function createApp(opts = {}) {
     const b = req.body || {};
     const email = checkEmail(b.email);
     const name = str(b.name, { required: true, max: 120, field: 'Navn' });
-    const password = checkPassword(b.password);
+    const password = checkPassword(b.password, 'admin');
     if (db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) throw new HttpError(409, 'E-mail er allerede i brug');
     const r = db.prepare(`INSERT INTO users (email,name,password_hash,role,status,created_at) VALUES (?,?,?,'admin','approved',?)`).run(email, name, A.hashPassword(password), new Date(now()).toISOString());
     res.status(201).json({ admin: { id: Number(r.lastInsertRowid), email, name } });
@@ -581,11 +584,31 @@ function createApp(opts = {}) {
   // ---------- static ----------
   const userFromReq = (req) => A.userFromToken(db, A.parseCookies(req.headers.cookie).sid);
   app.use('/uploads', (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(404).type('text/plain').send('Ikke fundet');
     const u = userFromReq(req);
-    if (!u) return res.status(401).send('Du skal være logget ind');
-    if (!(u.role === 'admin' || (u.role === 'dealer' && u.status === 'approved'))) return res.status(403).send('Ingen adgang');
-    next();
-  }, express.static(uploadDir, { index: false, dotfiles: 'deny', fallthrough: false, setHeaders: (r) => r.set({ 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }) }));
+    if (!u) return res.status(401).type('text/plain').send('Du skal være logget ind');
+    if (!(u.role === 'admin' || (u.role === 'dealer' && u.status === 'approved'))) return res.status(403).type('text/plain').send('Ingen adgang');
+    let rel = '';
+    try { rel = decodeURIComponent(String(req.path || '')); }
+    catch { return res.status(404).type('text/plain').send('Ikke fundet'); }
+    rel = rel.replace(/^\/uploads\//, '').replace(/^\//, '');
+    if (!/^[a-f0-9]{32}\.(jpg|png|webp|heic)$/.test(rel)) return res.status(404).type('text/plain').send('Ikke fundet');
+    const full = path.resolve(uploadDir, rel);
+    const root = path.resolve(uploadDir);
+    let st;
+    try { st = fs.lstatSync(full); }
+    catch { return res.status(404).type('text/plain').send('Ikke fundet'); }
+    if (st.isSymbolicLink() || !st.isFile()) return res.status(404).type('text/plain').send('Ikke fundet');
+    let real;
+    let rootReal;
+    try { real = fs.realpathSync(full); rootReal = fs.realpathSync(root); }
+    catch { return res.status(404).type('text/plain').send('Ikke fundet'); }
+    if (real !== path.join(rootReal, rel)) return res.status(404).type('text/plain').send('Ikke fundet');
+    res.sendFile(real, {
+      dotfiles: 'deny',
+      headers: { 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' },
+    }, (err) => { if (err) next(err); });
+  });
   app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ikke fundet' }));
   app.use((req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
@@ -594,7 +617,10 @@ function createApp(opts = {}) {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Ugyldig JSON' });
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Filen er for stor' });
-    console.error(err);
+    if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+      return res.status(err.status).type('text/plain').send(err.status === 404 ? 'Ikke fundet' : 'Ugyldig anmodning');
+    }
+    console.error('request failed');
     res.status(500).json({ error: 'Der opstod en fejl' });
   });
 
