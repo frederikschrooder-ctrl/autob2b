@@ -268,7 +268,7 @@ async function packagesPage() {
     box.hidden = false;
     box.innerHTML = [...selected].map((id) => {
       const v = byId[id]; if (!v) return '';
-      return `<span class="chip" data-id="${id}">${esc(v.make)} ${esc(v.model)} <button type="button" class="chip-x" title="Fjern" aria-label="Fjern">×</button></span>`;
+      return `<span class="chip" data-id="${id}">${esc(v.make)} ${esc(v.model)} <button type="button" class="chip-x" aria-label="Fjern ${esc(v.make)} ${esc(v.model)}">×</button></span>`;
     }).join('');
   };
 
@@ -337,6 +337,8 @@ async function packagesPage() {
   sel('#chips')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.chip-x');
     if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
     const id = +btn.closest('.chip').dataset.id;
     selected.delete(id);
     updateCount();
