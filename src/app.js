@@ -142,7 +142,7 @@ function createApp(opts = {}) {
         'Priserne er engrospriser ekskl. moms. Moms tillægges efter gældende regler.',
         'Køber bekræfter at være en professionel, godkendt forhandler registreret med det angivne CVR-nummer.',
         'Køretøjerne sælges som beskrevet i annoncen og tilstandsrapporten. Sælger er ikke ansvarlig for forhold, der fremgår af rapporten.',
-        'Betaling sker efter faktura fra AutoB2B. Levering aftales efter modtaget betaling.',
+        'Betaling sker efter faktura fra ' + seller.name + '. Levering aftales efter modtaget betaling.',
         'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.',
       ],
     };

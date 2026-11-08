@@ -57,7 +57,10 @@ test('single car agreement stays price plus 25 percent VAT', async () => {
     assert.equal(ag.seller.address, 'Teknologiparken 4, 9440 Aabybro, Denmark');
     assert.equal(ag.seller.email, undefined);
     assert.equal(ag.seller.phone, undefined);
-    assert.equal(ag.terms[3], 'Betaling sker efter faktura fra AutoB2B. Levering aftales efter modtaget betaling.');
+    assert.equal(ag.terms[0], 'Priserne er engrospriser ekskl. moms. Moms tillægges efter gældende regler.');
+    assert.equal(ag.terms[1], 'Køber bekræfter at være en professionel, godkendt forhandler registreret med det angivne CVR-nummer.');
+    assert.equal(ag.terms[2], 'Køretøjerne sælges som beskrevet i annoncen og tilstandsrapporten. Sælger er ikke ansvarlig for forhold, der fremgår af rapporten.');
+    assert.equal(ag.terms[3], 'Betaling sker efter faktura fra Højbogaard Biler. Levering aftales efter modtaget betaling.');
     assert.equal(ag.terms[4], 'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.');
   } finally { live.server.close(); ctx.close(); }
 });
@@ -91,6 +94,8 @@ test('package agreement explains catalog sum, adjustment, and agreed price witho
     assert.equal(discount.seller.cvr, '14952705');
     assert.equal(discount.seller.address, 'Teknologiparken 4, 9440 Aabybro, Denmark');
     assert.equal(discount.seller.email, undefined);
+    assert.equal(discount.terms[3], 'Betaling sker efter faktura fra Højbogaard Biler. Levering aftales efter modtaget betaling.');
+    assert.equal(discount.terms[4], 'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.');
 
     const extra = await pack([2000, 3000], 5500, 'TILLAEGVIN0000');
     assert.equal(extra.package_breakdown.catalog_sum, 5000);

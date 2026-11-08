@@ -125,6 +125,13 @@ test('new agreements snapshot the seller, and a later configuration does not rew
   try {
     const admin = await login(live.base, 'seller-admin@example.test', 'Seller-Admin-Pass-1');
     const dealer = await login(live.base, 'seller-dealer@example.test', 'Seller-Dealer-Pass-1');
+    const legacyTerms = [
+      'Priserne er engrospriser ekskl. moms. Moms tillægges efter gældende regler.',
+      'Køber bekræfter at være en professionel, godkendt forhandler registreret med det angivne CVR-nummer.',
+      'Køretøjerne sælges som beskrevet i annoncen og tilstandsrapporten. Sælger er ikke ansvarlig for forhold, der fremgår af rapporten.',
+      'Betaling sker efter faktura fra AutoB2B. Levering aftales efter modtaget betaling.',
+      'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.',
+    ];
     const legacy = JSON.stringify({
       number: 'AG-2020-00001',
       seller: { name: 'AutoB2B' },
@@ -132,7 +139,7 @@ test('new agreements snapshot the seller, and a later configuration does not rew
       vat: 250,
       total_incl_vat: 1250,
       items: [],
-      terms: ['unchanged'],
+      terms: legacyTerms,
     });
     const dealerId = fx.ctx.db.prepare(`SELECT id FROM users WHERE email='seller-dealer@example.test'`).get().id;
     const legacyId = Number(fx.ctx.db.prepare(`INSERT INTO orders (dealer_id,kind,status,price,item_label,agreement) VALUES (?,'buy','confirmed',1000,'Gammel',?)`).run(dealerId, legacy).lastInsertRowid);
@@ -143,6 +150,7 @@ test('new agreements snapshot the seller, and a later configuration does not rew
     assert.equal(old.seller.name, 'AutoB2B');
     assert.equal(old.seller.cvr, undefined);
     assert.equal(old.seller.address, undefined);
+    assert.deepEqual(old.terms, legacyTerms);
     assert.equal(fx.ctx.db.prepare('SELECT agreement FROM orders WHERE id=?').get(legacyId).agreement, before);
 
     const vehicle = (await (await post(live.base, '/api/admin/vehicles', admin, car('SELLVIN00000003', 1000))).json()).vehicle;
@@ -156,6 +164,8 @@ test('new agreements snapshot the seller, and a later configuration does not rew
     assert.equal(snap.seller.address, HOSTILE.SELLER_ADDRESS);
     assert.equal(snap.seller.email, undefined);
     assert.equal(snap.seller.phone, undefined);
+    assert.equal(snap.terms[3], 'Betaling sker efter faktura fra ' + HOSTILE.SELLER_LEGAL_NAME + '. Levering aftales efter modtaget betaling.');
+    assert.equal(snap.terms[4], 'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.');
     assert.equal(snap.price_excl_vat, 1000);
     assert.equal(snap.vat, 250);
     assert.equal(snap.total_incl_vat, 1250);
@@ -169,9 +179,12 @@ test('new agreements snapshot the seller, and a later configuration does not rew
     const again = JSON.parse(next.db.prepare('SELECT agreement FROM orders WHERE id=?').get(orderId).agreement);
     assert.equal(again.seller.name, HOSTILE.SELLER_LEGAL_NAME);
     assert.equal(again.seller.address, HOSTILE.SELLER_ADDRESS);
+    assert.equal(again.terms[3], 'Betaling sker efter faktura fra ' + HOSTILE.SELLER_LEGAL_NAME + '. Levering aftales efter modtaget betaling.');
     assert.notEqual(again.seller.name, OWNER.SELLER_LEGAL_NAME);
     const legacy = next.db.prepare(`SELECT agreement FROM orders WHERE item_label='Gammel'`).get().agreement;
-    assert.equal(JSON.parse(legacy).seller.name, 'AutoB2B');
+    const kept = JSON.parse(legacy);
+    assert.equal(kept.seller.name, 'AutoB2B');
+    assert.equal(kept.terms[3], 'Betaling sker efter faktura fra AutoB2B. Levering aftales efter modtaget betaling.');
   } finally { next.close(); }
 });
 
@@ -189,7 +202,7 @@ test('the printable seller block escapes unicode and markup and omits contact fi
     Intl, Date, console,
   };
   vm.createContext(context);
-  vm.runInContext(src + '\nglobalThis.__sellerBlock = sellerBlock;\n', context);
+  vm.runInContext(src + '\nglobalThis.__sellerBlock = sellerBlock;\nglobalThis.__esc = esc;\n', context);
   assert.equal(context.__sellerBlock({
     name: 'Høj <"&>\'',
     cvr: '14952705',
@@ -198,6 +211,10 @@ test('the printable seller block escapes unicode and markup and omits contact fi
     phone: '00000000',
   }), 'Høj &lt;&quot;&amp;&gt;&#39;<br>CVR: 14952705<br>Teknologiparken 4, 9440 Aabybro æøå');
   assert.equal(context.__sellerBlock({ name: 'AutoB2B' }), 'AutoB2B');
+  assert.equal(
+    context.__esc('Betaling sker efter faktura fra Høj <"&>\'. Levering aftales efter modtaget betaling.'),
+    'Betaling sker efter faktura fra Høj &lt;&quot;&amp;&gt;&#39;. Levering aftales efter modtaget betaling.',
+  );
   assert.equal(src.includes('hidden@example.test'), false);
 });
 

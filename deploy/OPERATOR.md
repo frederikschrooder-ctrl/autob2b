@@ -101,7 +101,7 @@ SELLER_ADDRESS=Teknologiparken 4, 9440 Aabybro, Denmark
 
 Do not add `SELLER_EMAIL`, `SELLER_PHONE`, or any other key. An unsupported key prevents startup. Public email and phone are not selected. The sales address, phone, and mail published on hbg.dk are not copied onto the agreement.
 
-The five existing terms are unchanged. They still name AutoB2B in the invoice sentence, and they still say the agreement is binding when it is generated. Those sentences were not reviewed as legal terms. There is no admin screen for the seller; the secrets file is the only setting.
+On a new agreement, the invoice sentence names the configured legal seller. The rest of that sentence is unchanged. An agreement already stored keeps its own terms, including an older invoice sentence that says AutoB2B. The last sentence, which says the agreement is binding when it is generated, is unchanged. That sentence is an unreviewed template, not a compliance determination. There is no admin screen for the seller; the secrets file is the only setting.
 
 An existing `/srv/autob2b/secrets.env` that has only the bootstrap keys still starts this build. Buys stay closed until the three seller lines are added and the process is restarted. Adding the lines does not by itself open the public site. Leave the public maintenance response in place until that is a separate decision. Do not put the secrets file in a release archive.
 
