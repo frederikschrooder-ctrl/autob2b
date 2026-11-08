@@ -1,9 +1,14 @@
 node_modules/
 *.log
 server.pid
+data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
 uploads/*
 !uploads/.gitkeep
-LOGIN-INFO.txt
+.env
+.env.*
+secrets.env
+**/secrets.env
 ADMIN_LOGIN.txt
+LOGIN-INFO.txt

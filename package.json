@@ -2,11 +2,11 @@
   "name": "autob2b-copy",
   "version": "1.0.0",
   "private": true,
-  "description": "Standalone local copy of the AutoB2B closed B2B car dealer platform",
+  "description": "Closed B2B dealer inventory. No default admin and no demo seed.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "seed": "node scripts/seed.js --samples",
+    "seed": "node scripts/seed.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js",
     "seed:admins": "node scripts/seed.js"
   },
@@ -14,6 +14,6 @@
     "express": "^5"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.16"
   }
 }

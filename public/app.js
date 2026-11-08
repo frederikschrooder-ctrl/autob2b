@@ -39,7 +39,7 @@ async function logout() { try { await api('POST', '/api/auth/logout', {}); } cat
 // ---------- landing ----------
 function landing() {
   $app.innerHTML = `
-  <div class="topbar"><div class="logo">Auto<span>B2B</span></div><div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Forhandler Login', 'outline')}</div></div>
+  <div class="topbar"><div class="logo">Auto<span>B2B</span></div><div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
   <section class="hero">
     <div class="badge">Lukket B2B Platform — Kun for Forhandlere</div>
     <h1>Premium Importerede Biler Fra Tyskland til Danmark</h1>
@@ -67,8 +67,8 @@ function authPage(kind) {
   const isLogin = kind === 'login';
   $app.innerHTML = `<div class="authwrap"><form class="authbox" id="f" novalidate>
     <div class="logo" style="margin-bottom:1rem">Auto<span>B2B</span></div>
-    <h1>${isLogin ? 'Forhandler Login' : 'Ansøg om Forhandlerkonto'}</h1>
-    <p class="muted">${isLogin ? 'Log ind for at få adgang til platformen.' : 'Udfyld oplysningerne – vi godkender din ansøgning manuelt.'}</p>
+    <h1>${isLogin ? 'Log ind' : 'Ansøg om Forhandlerkonto'}</h1>
+    <p class="muted">${isLogin ? 'Administratorer og forhandlere bruger samme login.' : 'Udfyld oplysningerne – vi godkender din ansøgning manuelt.'}</p>
     <div id="msg"></div>
     ${isLogin ? '' : `<label>Firmanavn</label><input name="company_name" required autocomplete="organization">
       <div class="grid2"><div><label>CVR-nummer</label><input name="cvr" required inputmode="numeric" maxlength="10"></div><div><label>By</label><input name="city" required autocomplete="address-level2"></div></div>`}
@@ -96,7 +96,7 @@ function authPage(kind) {
 
 // ---------- admin layout ----------
 function adminShell(active, inner) {
-  const nav = [['/dashboard', 'Oversigt'], ['/dashboard/vehicles', 'Biler'], ['/dashboard/packages', 'Partier'], ['/dashboard/orders', 'Ordrer'], ['/dashboard/dealers', 'Forhandlere']];
+  const nav = [['/dashboard', 'Oversigt'], ['/dashboard/vehicles', 'Biler'], ['/dashboard/packages', 'Partier'], ['/dashboard/orders', 'Ordrer'], ['/dashboard/dealers', 'Forhandlere'], ['/account/password', 'Adgangskode']];
   $app.innerHTML = `<div class="layout"><aside class="side"><div class="brand">AutoB2B – Admin Panel</div>
     <nav>${nav.map(([h, t]) => link(h, t, h === active ? 'active' : '')).join('')}</nav>
     <div class="user"><div class="n">${esc(S.user.name)}</div><div class="e">${esc(S.user.email)}</div><button id="lo">Log Ud</button></div></aside>
@@ -407,14 +407,16 @@ async function dealersPage() {
 function shopShell(active, inner, unread = 0) {
   const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer']];
   $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div>${nav.map(([h, t]) => link(h, t, h === active ? 'active' : '')).join('')}
-   <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span><button id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+   <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
   document.getElementById('lo').onclick = logout;
 }
 function holdPage() {
   const rej = S.user.status === 'rejected';
   $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button id="lo">Log Ud</button></div></header>
   <main class="shopmain"><div class="authbox" style="margin:3rem auto"><h1>${rej ? 'Din ansøgning er afvist' : 'Din ansøgning afventer godkendelse'}</h1>
-  <p>${rej ? 'Din forhandlerkonto er desværre ikke blevet godkendt, og du har derfor ikke adgang til kataloget.' : 'Vi gennemgår din ansøgning. Du får adgang til biler og partier, så snart din konto er godkendt.'}</p></div></main>`;
+  <p>${rej ? 'Din forhandlerkonto er desværre ikke blevet godkendt, og du har derfor ikke adgang til kataloget.' : 'Vi gennemgår din ansøgning. Du får adgang til biler og partier, så snart din konto er godkendt.'}</p>
+  ${rej ? '' : '<p class="muted">Opdater siden for at se, om kontoen er blevet godkendt.</p>'}
+  <p>${btnLink('/account/password', 'Skift adgangskode', 'outline')}</p></div></main>`;
   document.getElementById('lo').onclick = logout;
 }
 const carImg = (v) => (v.images && v.images[0] && !v.images[0].endsWith('.heic') ? `<img src="${esc(v.images[0])}" alt="">` : '🚗');
@@ -499,6 +501,33 @@ async function agreementPage(id) {
   sel('#pr').onclick = (e) => { e.preventDefault(); window.print(); };
 }
 
+// ---------- password ----------
+function passwordPage() {
+  const inner = `<div class="pagehead"><h1>Skift adgangskode</h1></div>
+    <form id="pf" class="formcard" novalidate style="max-width:32rem">
+      <p class="muted" style="margin-top:0">Den nye adgangskode gælder med det samme og bevares, når serveren genstarter.</p>
+      <label>Nuværende adgangskode</label><input type="password" name="current_password" required autocomplete="current-password">
+      <label>Ny adgangskode (min. 10 tegn)</label><input type="password" name="new_password" required minlength="10" autocomplete="new-password">
+      <button class="btn" type="submit">Gem ny adgangskode</button>
+      <div id="pm"></div>
+    </form>`;
+  if (S.user.role === 'admin') adminShell('/account/password', inner);
+  else if (S.user.role === 'dealer' && S.user.status === 'approved') shopShell('/shop', inner);
+  else {
+    $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+    document.getElementById('lo').onclick = logout;
+  }
+  document.getElementById('pf').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    try {
+      await api('POST', '/api/auth/password', { current_password: d.current_password, new_password: d.new_password });
+      e.target.reset();
+      document.getElementById('pm').innerHTML = '<div class="ok">Adgangskoden er ændret.</div>';
+    } catch (err) { showErr(document.getElementById('pm'), err); }
+  });
+}
+
 // ---------- router ----------
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
@@ -509,6 +538,7 @@ async function render() {
     if (path === '/') return landing();
     if (path === '/login' || path === '/register') { if (S.user) return go(S.user.role === 'admin' ? '/dashboard' : '/shop', true); return authPage(path.slice(1)); }
     if (!S.user) return go('/login', true);
+    if (path === '/account/password') return passwordPage();
     if ((m = path.match(/^\/agreement\/(\d+)$/))) return agreementPage(m[1]);
     if (path.startsWith('/dashboard')) {
       if (S.user.role !== 'admin') return go('/shop', true);

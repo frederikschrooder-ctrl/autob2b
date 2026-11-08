@@ -23,6 +23,7 @@ function createSession(db, userId) {
   return token;
 }
 function destroySession(db, token) { if (token) db.prepare('DELETE FROM sessions WHERE token_hash=?').run(sha(token)); }
+function destroyUserSessions(db, userId) { db.prepare('DELETE FROM sessions WHERE user_id=?').run(userId); }
 function userFromToken(db, token) {
   if (!token) return null;
   const row = db.prepare(`SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`).get(sha(token), Date.now());
@@ -33,4 +34,4 @@ function parseCookies(h) {
   String(h || '').split(';').forEach((p) => { const i = p.indexOf('='); if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); });
   return out;
 }
-module.exports = { hashPassword, verifyPassword, createSession, destroySession, userFromToken, parseCookies, SESSION_MS };
+module.exports = { hashPassword, verifyPassword, createSession, destroySession, destroyUserSessions, userFromToken, parseCookies, SESSION_MS };

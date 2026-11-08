@@ -9,7 +9,7 @@ const { hashPassword } = require('../src/auth');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-'));
 let clock = Date.now();
-const ctx = createApp({ dbFile: path.join(tmp, 't.sqlite'), uploadDir: path.join(tmp, 'up'), now: () => clock, noTimer: true, rateLimit: false });
+const ctx = createApp({ dbFile: path.join(tmp, 't.sqlite'), uploadDir: path.join(tmp, 'up'), now: () => clock, noTimer: true, rateLimit: false, env: {} });
 let base; let server;
 const ADMIN_PW = 'Test-Admin-Pass-123!';
 
@@ -63,7 +63,7 @@ test('login: wrong password rejected, correct accepted, /api/me', async () => {
   assert.equal((await c.login('admin@example.test', 'wrong')).status, 401);
   assert.equal((await c.get('/api/me')).json.user, null);
   assert.equal((await c.login('admin@example.test', ADMIN_PW)).status, 200);
-  const me = await c.get('/api/me'); assert.equal(me.json.user.role, 'admin');
+  const me = await c.get('/api/me'); assert.equal(me.json.user.role, 'admin'); assert.equal(me.json.user.password_hash, undefined);
   assert.equal((await c.post('/api/auth/logout')).status, 200);
   assert.equal((await c.get('/api/admin/stats')).status, 401);
 });
@@ -95,7 +95,12 @@ test('admin: image upload accepts real images, rejects others', async () => {
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
   const ok = await a.req('POST', '/api/admin/uploads', png, { 'content-type': 'application/octet-stream' });
   assert.equal(ok.status, 201); assert.match(ok.json.url, /^\/uploads\/[a-f0-9]{32}\.png$/);
-  const r = await fetch(base + ok.json.url); assert.equal(r.status, 200);
+  const r = await fetch(base + ok.json.url, { headers: { cookie: a.cookie } }); assert.equal(r.status, 200);
+  assert.equal((await fetch(base + ok.json.url)).status, 401);
+  const pending = await registerDealer(a, 90, false);
+  const dealer = await registerDealer(a, 91);
+  assert.equal((await fetch(base + ok.json.url, { headers: { cookie: dealer.c.cookie } })).status, 200);
+  assert.equal((await fetch(base + ok.json.url, { headers: { cookie: pending.c.cookie } })).status, 403);
   const notImg = await a.req('POST', '/api/admin/uploads', Buffer.from('<script>alert(1)</script>'.repeat(3)), { 'content-type': 'text/html' });
   assert.equal(notImg.status, 400);
   const withImg = await a.post('/api/admin/vehicles', car(40, { images: [ok.json.url] }));
@@ -286,6 +291,21 @@ test('CSRF guard: state-changing request without custom header is refused', asyn
   const a = await adminClient();
   const r = await fetch(base + '/api/admin/vehicles', { method: 'POST', headers: { cookie: a.cookie, 'content-type': 'application/json' }, body: JSON.stringify(car(99)) });
   assert.equal(r.status, 403);
+});
+
+test('dealer cannot cancel or read another dealers order; logged-out purchase is refused', async () => {
+  const a = await adminClient();
+  const d1 = await registerDealer(a, 92);
+  const d2 = await registerDealer(a, 93);
+  const v = (await a.post('/api/admin/vehicles', car(92))).json.vehicle;
+  const order = (await d1.c.post(`/api/shop/vehicles/${v.id}/reserve`)).json.order;
+  assert.equal((await d2.c.post(`/api/shop/orders/${order.id}/cancel`)).status, 404);
+  assert.equal((await d2.c.get(`/api/orders/${order.id}`)).status, 404);
+  assert.equal((await new Client().post(`/api/shop/vehicles/${v.id}/buy`)).status, 401);
+  assert.equal((await new Client().post('/api/auth/password', { current_password: 'x', new_password: 'yyyyyyyyyy' })).status, 401);
+  assert.equal((await a.get('/api/health')).status, 200);
+  assert.deepEqual((await a.get('/api/health')).json, { ok: true });
+  assert.equal((await d1.c.get(`/api/shop/orders`)).json.orders.find((o) => o.id === order.id).status, 'pending');
 });
 
 test('SPA routes and static assets are served', async () => {

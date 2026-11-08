@@ -1,0 +1,12 @@
+# Replace the current maintenance responder for the existing HTTPS site.
+# Keep the site addresses so the certificates Caddy already has stay in use.
+# Use 127.0.0.1, not "localhost": the app listens only on 127.0.0.1:10000
+# and does not accept connections on ::1.
+#
+# Caddy's reverse_proxy sets X-Forwarded-For and X-Forwarded-Proto.
+# Do not replace those headers. The app trusts a loopback proxy only.
+
+hbgproff.dk, www.hbgproff.dk {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:10000
+}

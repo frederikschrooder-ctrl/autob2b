@@ -5,7 +5,8 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { openDb } = require('./db');
 const A = require('./auth');
-const { ensureAdmins } = require('./ensure-admins');
+const { bootstrapAdmin } = require('./bootstrap-admin');
+const { resolveTrustProxy } = require('./runtime-config');
 
 const FUELS = ['el', 'hybrid', 'benzin', 'diesel'];
 const TRANSMISSIONS = ['automatic', 'manual'];
@@ -54,11 +55,14 @@ function createApp(opts = {}) {
   const uploadDir = opts.uploadDir || path.join(__dirname, '..', 'uploads');
   const now = opts.now || (() => Date.now());
   const db = openDb(dbFile);
-  ensureAdmins(db);
+  const log = opts.logger?.log || (opts.bootstrapLog ? (...a) => console.log(...a) : () => {});
+  const error = opts.logger?.error || (opts.bootstrapLog ? (...a) => console.error(...a) : () => {});
+  const bootstrap = bootstrapAdmin(db, opts.env || {}, { log, error });
   fs.mkdirSync(uploadDir, { recursive: true });
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', false);
+  app.set('trust proxy', resolveTrustProxy(opts.trustProxy));
+  const cookieBase = () => ({ httpOnly: true, sameSite: 'lax', secure: !!opts.cookieSecure, path: '/' });
 
   // ---------- helpers on data ----------
   const vehicleOut = (v) => v && ({ ...v, images: JSON.parse(v.images || '[]') });
@@ -85,9 +89,18 @@ function createApp(opts = {}) {
     orderVehicles(order.id).forEach((vid) => upd.run(status, vid));
     if (order.package_id) db.prepare('UPDATE packages SET status=? WHERE id=?').run(status, order.package_id);
   }
+  function isBusy(e) {
+    const msg = String(e && (e.message || e.code || ''));
+    return (e && (e.code === 'ERR_SQLITE_ERROR' || e.code === 'SQLITE_BUSY')) && /locked|SQLITE_BUSY|busy/i.test(msg);
+  }
   function tx(fn) {
     db.exec('BEGIN IMMEDIATE');
-    try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
+    try { const r = fn(); db.exec('COMMIT'); return r; }
+    catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      if (isBusy(e)) throw new HttpError(409, 'Handlingen kunne ikke gennemføres, fordi varen blev opdateret samtidig. Prøv igen.');
+      throw e;
+    }
   }
   function expireOrders(nowMs = now()) {
     const iso = new Date(nowMs).toISOString();
@@ -138,8 +151,14 @@ function createApp(opts = {}) {
     const order = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
     if (kind === 'buy') db.prepare('UPDATE orders SET agreement=? WHERE id=?').run(JSON.stringify(buildAgreement(order, dealer, cars)), id);
     const newStatus = kind === 'buy' ? 'sold' : 'reserved';
-    cars.forEach((c) => db.prepare('UPDATE vehicles SET status=? WHERE id=?').run(newStatus, c.id));
-    if (isPkg) db.prepare('UPDATE packages SET status=? WHERE id=?').run(newStatus, pkg.id);
+    const claim = db.prepare(`UPDATE vehicles SET status=? WHERE id=? AND status='available'`);
+    for (const c of cars) {
+      if (claim.run(newStatus, c.id).changes !== 1) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
+    }
+    if (isPkg) {
+      const pr = db.prepare(`UPDATE packages SET status=? WHERE id=? AND status='available'`).run(newStatus, pkg.id);
+      if (pr.changes !== 1) throw new HttpError(409, 'Partiet er ikke længere tilgængeligt');
+    }
     return id;
   }
 
@@ -211,15 +230,36 @@ function createApp(opts = {}) {
     }
     attempts.delete(key);
     const token = A.createSession(db, u.id);
-    res.cookie('sid', token, { httpOnly: true, sameSite: 'lax', secure: !!opts.cookieSecure, maxAge: A.SESSION_MS, path: '/' });
+    res.cookie('sid', token, { ...cookieBase(), maxAge: A.SESSION_MS });
     res.json({ user: publicUser(u) });
   }));
   app.post('/api/auth/logout', wrap((req, res) => {
     A.destroySession(db, req.sessionToken);
-    res.clearCookie('sid', { path: '/' });
+    res.clearCookie('sid', cookieBase());
+    res.json({ ok: true });
+  }));
+  app.post('/api/auth/password', requireAuth, wrap((req, res) => {
+    const key = `pw|${req.user.id}`;
+    const a = attempts.get(key);
+    if (opts.rateLimit !== false && a && a.count >= 10 && now() - a.first < 15 * 60 * 1000) return res.status(429).json({ error: 'For mange forsøg. Prøv igen senere.' });
+    const current = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
+    const row = db.prepare('SELECT password_hash FROM users WHERE id=?').get(req.user.id);
+    if (!row || !A.verifyPassword(current, row.password_hash)) {
+      const cur = a && now() - a.first < 15 * 60 * 1000 ? a : { count: 0, first: now() };
+      cur.count++; attempts.set(key, cur);
+      return res.status(401).json({ error: 'Forkert adgangskode' });
+    }
+    const nextPw = checkPassword(req.body?.new_password);
+    if (current === nextPw) throw bad('Den nye adgangskode skal være forskellig fra den nuværende');
+    db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(A.hashPassword(nextPw), req.user.id);
+    A.destroyUserSessions(db, req.user.id);
+    attempts.delete(key);
+    const token = A.createSession(db, req.user.id);
+    res.cookie('sid', token, { ...cookieBase(), maxAge: A.SESSION_MS });
     res.json({ ok: true });
   }));
   app.get('/api/me', wrap((req, res) => res.json({ user: publicUser(req.user) })));
+  app.get('/api/health', wrap((req, res) => res.json({ ok: true })));
 
   app.post('/api/auth/register', wrap((req, res) => {
     const b = req.body || {};
@@ -326,7 +366,7 @@ function createApp(opts = {}) {
     const ext = sniffImage(req.body);
     if (!ext) throw bad('Kun JPG, PNG, HEIC og WebP er tilladt');
     const name = crypto.randomBytes(16).toString('hex') + '.' + ext;
-    fs.writeFileSync(path.join(uploadDir, name), req.body, { mode: 0o644 });
+    fs.writeFileSync(path.join(uploadDir, name), req.body, { mode: 0o600 });
     res.status(201).json({ url: '/uploads/' + name });
   }));
 
@@ -471,10 +511,11 @@ function createApp(opts = {}) {
           const v = getVehicle(id); if (!v) throw new HttpError(404, 'Bilen findes ikke');
           const mine = kind === 'buy' ? myHold(id, req.user.id) : null;
           if (mine) { // convert own reservation into a purchase
-            db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=?`).run(v.price, mine.id);
+            const claimed = db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).run(v.price, mine.id, req.user.id);
+            if (claimed.changes !== 1) throw new HttpError(409, 'Reservationen kan ikke længere omsættes til køb');
+            if (db.prepare(`UPDATE vehicles SET status='sold' WHERE id=? AND status='reserved'`).run(id).changes !== 1) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
             const o = db.prepare('SELECT * FROM orders WHERE id=?').get(mine.id);
             db.prepare('UPDATE orders SET agreement=? WHERE id=?').run(JSON.stringify(buildAgreement(o, req.user, [v])), mine.id);
-            db.prepare(`UPDATE vehicles SET status='sold' WHERE id=?`).run(id);
             return mine.id;
           }
           if (v.status !== 'available') throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
@@ -483,10 +524,15 @@ function createApp(opts = {}) {
         const p = pkgOut(db.prepare('SELECT * FROM packages WHERE id=?').get(id)); if (!p) throw new HttpError(404, 'Partiet findes ikke');
         const mine = kind === 'buy' ? db.prepare(`SELECT * FROM orders WHERE package_id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).get(id, req.user.id) : null;
         if (mine) {
-          db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=?`).run(p.total_price, mine.id);
+          const claimed = db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).run(p.total_price, mine.id, req.user.id);
+          if (claimed.changes !== 1) throw new HttpError(409, 'Reservationen kan ikke længere omsættes til køb');
           const o = db.prepare('SELECT * FROM orders WHERE id=?').get(mine.id);
+          const claim = db.prepare(`UPDATE vehicles SET status='sold' WHERE id=? AND status='reserved'`);
+          for (const vid of orderVehicles(o.id)) {
+            if (claim.run(vid).changes !== 1) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
+          }
+          if (db.prepare(`UPDATE packages SET status='sold' WHERE id=? AND status='reserved'`).run(id).changes !== 1) throw new HttpError(409, 'Partiet er ikke længere tilgængeligt');
           db.prepare('UPDATE orders SET agreement=? WHERE id=?').run(JSON.stringify(buildAgreement(o, req.user, p.vehicles)), mine.id);
-          setOrderItemsStatus(o, 'sold');
           return mine.id;
         }
         if (p.effective_status !== 'available') throw new HttpError(409, 'Partiet er ikke længere tilgængeligt');
@@ -533,7 +579,13 @@ function createApp(opts = {}) {
   }));
 
   // ---------- static ----------
-  app.use('/uploads', express.static(uploadDir, { index: false, dotfiles: 'deny', setHeaders: (r) => r.set('Content-Disposition', 'inline') }));
+  const userFromReq = (req) => A.userFromToken(db, A.parseCookies(req.headers.cookie).sid);
+  app.use('/uploads', (req, res, next) => {
+    const u = userFromReq(req);
+    if (!u) return res.status(401).send('Du skal være logget ind');
+    if (!(u.role === 'admin' || (u.role === 'dealer' && u.status === 'approved'))) return res.status(403).send('Ingen adgang');
+    next();
+  }, express.static(uploadDir, { index: false, dotfiles: 'deny', fallthrough: false, setHeaders: (r) => r.set({ 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }) }));
   app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ikke fundet' }));
   app.use((req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
@@ -546,8 +598,8 @@ function createApp(opts = {}) {
     res.status(500).json({ error: 'Der opstod en fejl' });
   });
 
-  const timer = opts.noTimer ? null : setInterval(() => { try { expireOrders(); } catch (e) { console.error(e); } }, 15000);
+  const timer = opts.noTimer ? null : setInterval(() => { try { expireOrders(); } catch (e) { console.error('expire failed'); } }, 15000);
   if (timer) timer.unref();
-  return { app, db, expireOrders, close: () => { if (timer) clearInterval(timer); db.close(); } };
+  return { app, db, bootstrap, expireOrders, close: () => { if (timer) clearInterval(timer); db.close(); } };
 }
 module.exports = { createApp };
