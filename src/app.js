@@ -114,20 +114,21 @@ function createApp(opts = {}) {
   }
 
   function buildAgreement(order, dealer, items) {
-    const net = items.reduce((s, i) => s + i.price, 0) || order.price;
-    const vat = Math.round(net * VAT_RATE);
+    const catalog_sum = items.reduce((s, i) => s + (Number(i.price) || 0), 0);
+    const agreed = order.price;
+    const vat = Math.round(agreed * VAT_RATE);
     const d = new Date(now());
-    return {
+    const agreement = {
       number: `AG-${d.getUTCFullYear()}-${String(order.id).padStart(5, '0')}`,
       date: d.toISOString(),
       seller: { name: 'AutoB2B' },
       buyer: { company: dealer.company_name, cvr: dealer.cvr, city: dealer.city, contact: dealer.name, email: dealer.email },
       subject: order.item_label,
       items: items.map((i) => ({ vin: i.vin, description: vehicleLabel(i), price: i.price })),
-      price_excl_vat: order.price,
+      price_excl_vat: agreed,
       vat_rate: VAT_RATE,
-      vat: Math.round(order.price * VAT_RATE),
-      total_incl_vat: order.price + Math.round(order.price * VAT_RATE),
+      vat,
+      total_incl_vat: agreed + vat,
       terms: [
         'Priserne er engrospriser ekskl. moms. Moms tillægges efter gældende regler.',
         'Køber bekræfter at være en professionel, godkendt forhandler registreret med det angivne CVR-nummer.',
@@ -136,6 +137,14 @@ function createApp(opts = {}) {
         'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.',
       ],
     };
+    if (order.package_id) {
+      agreement.package_breakdown = {
+        catalog_sum,
+        adjustment: agreed - catalog_sum,
+        agreed_price: agreed,
+      };
+    }
+    return agreement;
   }
 
   function createOrder({ dealer, kind, vehicle, pkg }) {
