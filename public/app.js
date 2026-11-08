@@ -98,12 +98,19 @@ function authPage(kind) {
 // ---------- admin layout ----------
 function adminShell(active, inner) {
   const nav = [['/dashboard', 'Oversigt'], ['/dashboard/vehicles', 'Biler'], ['/dashboard/packages', 'Partier'], ['/dashboard/orders', 'Ordrer'], ['/dashboard/dealers', 'Forhandlere'], ['/account/password', 'Adgangskode']];
-  $app.innerHTML = `<div class="layout"><aside class="side"><div class="brand">AutoB2B – Admin Panel</div>
-    <nav>${nav.map(([h, t]) => link(h, t, h === active ? 'active' : '')).join('')}</nav>
-    <div class="user"><div class="n">${esc(S.user.name)}</div><div class="e">${esc(S.user.email)}</div><button id="lo">Log Ud</button></div></aside>
+  $app.innerHTML = `<div class="layout"><aside class="side" id="side"><div class="sidehead"><div class="brand">AutoB2B – Admin Panel</div><button type="button" class="navtoggle" id="navtoggle" aria-expanded="false" aria-controls="sidenav">Menu</button></div>
+    <nav id="sidenav" aria-label="Administration">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
+    <div class="user"><div class="n">${esc(S.user.name)}</div><div class="e">${esc(S.user.email)}</div><button type="button" id="lo">Log Ud</button></div></aside>
     <main class="main">${inner}</main></div>`;
   document.getElementById('lo').onclick = logout;
+  const toggle = document.getElementById('navtoggle');
+  toggle.onclick = () => {
+    const open = document.getElementById('side').classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.textContent = open ? 'Luk menu' : 'Menu';
+  };
 }
+const cell = (label, html, cls = '') => `<td${cls ? ` class="${cls}"` : ''}><span class="celllabel">${label}</span>${html}</td>`;
 const sel = (el) => document.querySelector(el);
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
@@ -130,8 +137,8 @@ async function vehiclesPage() {
       const r = await api('GET', '/api/admin/vehicles?' + p);
       sel('#cnt').textContent = `${r.count} ${r.count === 1 ? 'bil' : 'biler'}`;
       sel('#tbl').innerHTML = r.vehicles.length ? `<div class="tablewrap"><table><thead><tr><th></th><th>VIN</th><th>Mærke / Model</th><th>Variant</th><th>Km</th><th>Brændstof</th><th>Engrospris</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>
-      ${r.vehicles.map((v) => `<tr><td>${v.images[0] ? `<img class="thumb" src="${esc(v.images[0])}" alt="">` : '<div class="thumb"></div>'}</td><td>${esc(v.vin)}</td><td><b>${esc(v.make)}</b> ${esc(v.model)}</td><td>${esc(v.variant || '—')}</td><td>${v.mileage != null ? num(v.mileage) : '—'}</td><td>${esc(L.fuel[v.fuel] || '—')}</td><td>${dkk(v.price)}</td><td>${pill(L.vstatus, v.status)}</td>
-      <td class="act">${btnLink('/dashboard/vehicles/' + v.id + '/edit', 'Rediger', 'small outline')}<button class="btn small danger" data-del="${v.id}" data-name="${esc(v.make + ' ' + v.model + ' (' + v.vin + ')')}">Slet</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="tablewrap"><div class="empty">Ingen biler fundet.</div></div>';
+      ${r.vehicles.map((v) => `<tr>${cell('Billede', v.images[0] ? `<img class="thumb" src="${esc(v.images[0])}" alt="">` : '<div class="thumb"></div>')}${cell('VIN', esc(v.vin))}${cell('Mærke / Model', `<b>${esc(v.make)}</b> ${esc(v.model)}`)}${cell('Variant', esc(v.variant || '—'))}${cell('Km', v.mileage != null ? num(v.mileage) : '—')}${cell('Brændstof', esc(L.fuel[v.fuel] || '—'))}${cell('Engrospris', dkk(v.price))}${cell('Status', pill(L.vstatus, v.status))}
+      ${cell('Handlinger', `${btnLink('/dashboard/vehicles/' + v.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-del="${v.id}" data-name="${esc(v.make + ' ' + v.model + ' (' + v.vin + ')')}" aria-label="Slet ${esc(v.make + ' ' + v.model)}">Slet</button>`, 'act')}</tr>`).join('')}</tbody></table></div>` : '<div class="tablewrap"><div class="empty">Ingen biler fundet.</div></div>';
     } catch (e) { showErr(sel('#msg'), e); }
   };
   sel('#q').addEventListener('input', debounce(load)); sel('#st').onchange = load; sel('#fu').onchange = load;
@@ -363,8 +370,8 @@ async function packagesPage() {
 function ordersTable(orders, actions) {
   if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
   return `<div class="tablewrap"><table><thead><tr><th>#</th><th>Forhandler</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Udløber</th>${actions ? '<th>Handlinger</th>' : ''}</tr></thead><tbody>
-  ${orders.map((o) => `<tr><td>${o.id}</td><td>${esc(o.dealer?.company_name || '—')}</td><td>${esc(o.item_label)}</td><td>${L.kind[o.kind]}</td><td>${dkk(o.price)}</td><td>${pill(L.ostatus, o.status)}</td><td>${dt(o.created_at)}</td><td>${o.status === 'pending' ? dt(o.expires_at) : '—'}</td>
-  ${actions ? `<td class="act">${o.status === 'pending' ? `<button class="btn small" data-act="confirm" data-id="${o.id}">Bekræft</button>` : ''}${o.status === 'confirmed' ? `<button class="btn small" data-act="complete" data-id="${o.id}">Gennemfør</button>` : ''}${['pending', 'confirmed'].includes(o.status) ? `<button class="btn small danger" data-act="cancel" data-id="${o.id}">Annuller</button>` : ''}${o.has_agreement ? btnLink('/agreement/' + o.id, 'Aftale', 'small outline') : ''}</td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+  ${orders.map((o) => `<tr>${cell('#', o.id)}${cell('Forhandler', esc(o.dealer?.company_name || '—'))}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Udløber', o.status === 'pending' ? dt(o.expires_at) : '—')}
+  ${actions ? cell('Handlinger', `${o.status === 'pending' ? `<button type="button" class="btn small" data-act="confirm" data-id="${o.id}">Bekræft</button>` : ''}${o.status === 'confirmed' ? `<button type="button" class="btn small" data-act="complete" data-id="${o.id}">Gennemfør</button>` : ''}${['pending', 'confirmed'].includes(o.status) ? `<button type="button" class="btn small danger" data-act="cancel" data-id="${o.id}" aria-label="Annuller ordre ${o.id}">Annuller</button>` : ''}${o.has_agreement ? btnLink('/agreement/' + o.id, 'Aftale', 'small outline') : ''}`, 'act') : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 async function ordersPage() {
   adminShell('/dashboard/orders', `<div class="pagehead"><h1>Ordrer</h1></div><div class="filters"><select id="st"><option value="">Alle ordrer</option>${Object.entries(L.ostatus).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div><div id="msg"></div><div id="tbl"></div>`);
@@ -385,12 +392,12 @@ async function ordersPage() {
 async function dealersPage() {
   adminShell('/dashboard/dealers', '<h1>Indlæser…</h1>');
   const { dealers } = await api('GET', '/api/admin/dealers');
-  const sect = (title, st, rows, acts) => `<h2>${title} (${rows.length})</h2>${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>E-mail</th><th>Ansøgt</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${rows.map((d) => `<tr><td><b>${esc(d.company_name)}</b></td><td>${esc(d.cvr)}</td><td>${esc(d.city)}</td><td>${esc(d.email)}</td><td>${dt(d.created_at)}</td><td>${pill(L.dstatus, d.status)}</td><td class="act">${acts(d)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
+  const sect = (title, st, rows, acts) => `<h2>${title} (${rows.length})</h2>${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>E-mail</th><th>Ansøgt</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${rows.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
   const by = (s) => dealers.filter((d) => d.status === s);
   adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1></div><div id="msg"></div>
-    ${sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `<button class="btn small" data-a="approve" data-id="${d.id}">Godkend</button><button class="btn small danger" data-a="reject" data-id="${d.id}">Afvis</button>`)}
-    ${sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `<button class="btn small danger" data-a="reject" data-id="${d.id}">Afvis</button>`)}
-    ${sect('Afviste', 'rejected', by('rejected'), (d) => `<button class="btn small outline" data-a="approve" data-id="${d.id}">Godkend</button>`)}
+    ${sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
+    ${sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
+    ${sect('Afviste', 'rejected', by('rejected'), (d) => `<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button>`)}
     <form id="af" class="formcard" novalidate><h2>Tilføj Administrator</h2><p class="muted" style="margin-top:0">Kun administratorer kan oprette nye administratorer.</p>
       <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 4 tegn)</label><input type="password" name="password" minlength="4" required autocomplete="new-password"></div></div>
       <button class="btn" style="margin-top:1rem">Opret Administrator</button><div id="am"></div></form>`);
@@ -409,13 +416,13 @@ async function dealersPage() {
 // ---------- dealer shop ----------
 function shopShell(active, inner, unread = 0) {
   const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer']];
-  $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div>${nav.map(([h, t]) => link(h, t, h === active ? 'active' : '')).join('')}
-   <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+  $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><nav aria-label="Forhandler">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
+   <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
   document.getElementById('lo').onclick = logout;
 }
 function holdPage() {
   const rej = S.user.status === 'rejected';
-  $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button id="lo">Log Ud</button></div></header>
+  $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header>
   <main class="shopmain"><div class="authbox" style="margin:3rem auto"><h1>${rej ? 'Din ansøgning er afvist' : 'Din ansøgning afventer godkendelse'}</h1>
   <p>${rej ? 'Din forhandlerkonto er desværre ikke blevet godkendt, og du har derfor ikke adgang til kataloget.' : 'Vi gennemgår din ansøgning. Du får adgang til biler og partier, så snart din konto er godkendt.'}</p>
   ${rej ? '' : '<p class="muted">Opdater siden for at se, om kontoen er blevet godkendt.</p>'}
@@ -468,7 +475,7 @@ async function shopPackage(id) {
   shopShell('/shop/packages', '<p>Indlæser…</p>');
   let p; try { p = (await api('GET', '/api/shop/packages/' + id)).package; } catch (e) { return shopShell('/shop/packages', `<div class="err">${esc(e.message)}</div>${btnLink('/shop/packages', '← Tilbage')}`); }
   shopShell('/shop/packages', `${link('/shop/packages', '← Alle partier')}<h1 style="margin-top:1rem">${esc(p.name)}</h1><p>${esc(p.description || '')}</p><div class="price">${dkk(p.total_price)} <small>samlet pris ekskl. moms</small></div>
-   <h2 style="margin-top:1.5rem">Biler i partiet (${p.vehicle_count})</h2>${p.vehicles.length ? `<div class="tablewrap"><table><thead><tr><th>Mærke / Model</th><th>VIN</th><th>Km</th><th>Brændstof</th></tr></thead><tbody>${p.vehicles.map((v) => `<tr><td>${esc(v.make)} ${esc(v.model)} ${esc(v.variant || '')}</td><td>${esc(v.vin)}</td><td>${v.mileage != null ? num(v.mileage) : '—'}</td><td>${esc(L.fuel[v.fuel] || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Bilerne i partiet specificeres efter aftale.</p>'}
+   <h2 style="margin-top:1.5rem">Biler i partiet (${p.vehicle_count})</h2>${p.vehicles.length ? `<div class="tablewrap"><table><thead><tr><th>Mærke / Model</th><th>VIN</th><th>Km</th><th>Brændstof</th></tr></thead><tbody>${p.vehicles.map((v) => `<tr>${cell('Mærke / Model', `${esc(v.make)} ${esc(v.model)} ${esc(v.variant || '')}`)}${cell('VIN', esc(v.vin))}${cell('Km', v.mileage != null ? num(v.mileage) : '—')}${cell('Brændstof', esc(L.fuel[v.fuel] || '—'))}</tr>`).join('')}</tbody></table></div>` : '<p class="muted">Bilerne i partiet specificeres efter aftale.</p>'}
    <div id="msg"></div><p><button class="btn outline" id="rs">Reserver i 24 timer</button> <button class="btn" id="by">Køb nu</button></p>`);
   const act = async (kind, q) => { if (!confirm(q)) return; try { const o = (await api('POST', `/api/shop/packages/${id}/${kind}`, {})).order; go(kind === 'buy' ? '/agreement/' + o.id : '/shop/orders'); } catch (e) { showErr(sel('#msg'), e); } };
   sel('#rs').onclick = () => act('reserve', 'Reserver hele partiet i 24 timer?'); sel('#by').onclick = () => act('buy', 'Køb hele partiet nu? Der genereres en bindende købsaftale.');
@@ -478,7 +485,7 @@ async function shopOrders() {
   const load = async () => {
     try {
       const r = await api('GET', '/api/shop/orders');
-      sel('#lst').innerHTML = r.orders.length ? `<div class="tablewrap"><table><thead><tr><th>#</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Reserveret til</th><th></th></tr></thead><tbody>${r.orders.map((o) => `<tr><td>${o.id}</td><td>${esc(o.item_label)}</td><td>${L.kind[o.kind]}</td><td>${dkk(o.price)}</td><td>${pill(L.ostatus, o.status)}</td><td>${dt(o.created_at)}</td><td>${o.status === 'pending' ? dt(o.expires_at) : '—'}</td><td class="act">${o.has_agreement ? btnLink('/agreement/' + o.id, 'Se aftale', 'small outline') : ''}${o.status === 'pending' ? `<button class="btn small outline" data-cancel="${o.id}">Annuller</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Du har ingen ordrer endnu.</div>';
+      sel('#lst').innerHTML = r.orders.length ? `<div class="tablewrap"><table><thead><tr><th>#</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Reserveret til</th><th>Handlinger</th></tr></thead><tbody>${r.orders.map((o) => `<tr>${cell('#', o.id)}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Reserveret til', o.status === 'pending' ? dt(o.expires_at) : '—')}${cell('Handlinger', `${o.has_agreement ? btnLink('/agreement/' + o.id, 'Se aftale', 'small outline') : ''}${o.status === 'pending' ? `<button type="button" class="btn small outline" data-cancel="${o.id}" aria-label="Annuller ordre ${o.id}">Annuller</button>` : ''}`, 'act')}</tr>`).join('')}</tbody></table></div>` : '<div class="empty">Du har ingen ordrer endnu.</div>';
     } catch (e) { showErr(sel('#msg'), e); }
   };
   sel('#lst').addEventListener('click', async (e) => {
@@ -498,7 +505,7 @@ async function agreementPage(id) {
   <div class="agreement"><h1>Købsaftale</h1><p class="muted">Aftalenr. <b>${esc(a.number)}</b> · ${dt(a.date)}</p>
   <h3>Sælger</h3><p>${esc(a.seller.name)}</p>
   <h3>Køber</h3><p>${esc(a.buyer.company)}<br>CVR: ${esc(a.buyer.cvr)} · ${esc(a.buyer.city)}<br>Kontakt: ${esc(a.buyer.contact)} (${esc(a.buyer.email)})</p>
-  <h3>Genstand: ${esc(a.subject)}</h3><div class="tablewrap"><table><thead><tr><th>Køretøj</th><th>VIN</th><th style="text-align:right">Pris</th></tr></thead><tbody>${a.items.map((i) => `<tr><td>${esc(i.description)}</td><td>${esc(i.vin)}</td><td style="text-align:right">${i.price ? dkk(i.price) : ''}</td></tr>`).join('')}</tbody></table></div>
+  <h3>Genstand: ${esc(a.subject)}</h3><div class="tablewrap"><table><thead><tr><th>Køretøj</th><th>VIN</th><th style="text-align:right">Pris</th></tr></thead><tbody>${a.items.map((i) => `<tr>${cell('Køretøj', esc(i.description))}${cell('VIN', esc(i.vin))}${cell('Pris', i.price ? dkk(i.price) : '')}</tr>`).join('')}</tbody></table></div>
   <table class="spec" style="margin-top:1rem"><tr><td>Pris ekskl. moms</td><td style="text-align:right">${dkk(a.price_excl_vat)}</td></tr><tr><td>Moms (${a.vat_rate * 100}%)</td><td style="text-align:right">${dkk(a.vat)}</td></tr><tr><td><b>I alt inkl. moms</b></td><td style="text-align:right"><b>${dkk(a.total_incl_vat)}</b></td></tr></table>
   <h3 style="margin-top:1.5rem">Vilkår</h3><ol>${a.terms.map((t) => `<li>${esc(t)}</li>`).join('')}</ol></div>`);
   sel('#pr').onclick = (e) => { e.preventDefault(); window.print(); };
@@ -518,7 +525,7 @@ function passwordPage() {
   if (S.user.role === 'admin') adminShell('/account/password', inner);
   else if (S.user.role === 'dealer' && S.user.status === 'approved') shopShell('/shop', inner);
   else {
-    $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+    $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
     document.getElementById('lo').onclick = logout;
   }
   document.getElementById('pf').addEventListener('submit', async (e) => {
