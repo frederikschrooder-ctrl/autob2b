@@ -92,6 +92,8 @@ sudo docker compose restart
 
 Cars, lots, dealer approvals, and orders entered before the restart must still be there. Changing the password inside `secrets.env` must not change the live password.
 
+This build adds archive columns on `orders` and an `order_corrections` table the first time it opens the database. It does not rewrite a stored agreement. `deploy/OPERATOR.md` describes which admin fields can change and how to roll back. Rolling the application back to the previous build leaves the new columns in place.
+
 ## 4. Caddy
 
 Edit the existing site block. Do not remove the `hbgproff.dk` / `www.hbgproff.dk` site labels. Replace the maintenance `respond` 503 with the snippet in `deploy/Caddyfile.snippet`:

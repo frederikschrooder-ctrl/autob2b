@@ -80,7 +80,7 @@ function createApp(opts = {}) {
     if (cars.length === 0 || (p.status === 'available' && cars.some((c) => c.status !== 'available'))) effective = 'unavailable';
     return { ...p, vehicles: cars, vehicle_count: cars.length, effective_status: effective };
   };
-  const activeOrderFor = (vehicleId) => db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.status IN ('pending','confirmed')`).get(vehicleId);
+  const activeOrderFor = (vehicleId) => db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND ((o.archived_at IS NULL AND o.status IN ('pending','confirmed')) OR (o.archived_at IS NOT NULL AND o.status='confirmed'))`).get(vehicleId);
   const orderVehicles = (orderId) => db.prepare('SELECT vehicle_id FROM order_vehicles WHERE order_id=?').all(orderId).map((r) => r.vehicle_id);
 
   function releaseOrder(order) {
@@ -109,7 +109,7 @@ function createApp(opts = {}) {
   function expireOrders(nowMs = now()) {
     const iso = new Date(nowMs).toISOString();
     return tx(() => {
-      const due = db.prepare(`SELECT * FROM orders WHERE kind='reserve' AND status='pending' AND expires_at IS NOT NULL AND expires_at<=?`).all(iso);
+      const due = db.prepare(`SELECT * FROM orders WHERE kind='reserve' AND status='pending' AND archived_at IS NULL AND expires_at IS NOT NULL AND expires_at<=?`).all(iso);
       for (const o of due) { db.prepare(`UPDATE orders SET status='expired' WHERE id=?`).run(o.id); releaseOrder(o); }
       db.prepare('DELETE FROM sessions WHERE expires_at<?').run(nowMs);
       return due.length;
@@ -187,6 +187,13 @@ function createApp(opts = {}) {
     if (!o) return null;
     const out = { ...o, agreement: undefined, has_agreement: !!o.agreement };
     if (withAgreement && o.agreement) out.agreement = JSON.parse(o.agreement);
+    if (!withDealer) {
+      delete out.admin_note;
+      delete out.archive_note;
+      delete out.archived_by;
+    } else {
+      out.corrections = db.prepare('SELECT id, previous_price, new_price, reason, admin_id, created_at FROM order_corrections WHERE order_id=? ORDER BY id').all(o.id);
+    }
     out.vehicles = orderVehicles(o.id).map((vid) => db.prepare('SELECT id,vin,make,model,variant FROM vehicles WHERE id=?').get(vid)).filter(Boolean);
     if (withDealer) {
       const d = db.prepare('SELECT id,name,email,company_name,cvr,city FROM users WHERE id=?').get(o.dealer_id);
@@ -302,13 +309,13 @@ function createApp(opts = {}) {
   app.get('/api/admin/stats', requireAdmin, wrap((req, res) => {
     expireOrders();
     const one = (sql, ...p) => db.prepare(sql).get(...p).n;
-    const recent = db.prepare('SELECT * FROM orders ORDER BY id DESC LIMIT 5').all().map((o) => orderOut(o, { withDealer: true }));
+    const recent = db.prepare('SELECT * FROM orders WHERE archived_at IS NULL ORDER BY id DESC LIMIT 5').all().map((o) => orderOut(o, { withDealer: true }));
     res.json({
       vehicles_total: one('SELECT COUNT(*) n FROM vehicles'),
       vehicles_available: one(`SELECT COUNT(*) n FROM vehicles WHERE status='available'`),
       active_packages: db.prepare('SELECT * FROM packages').all().map(pkgOut).filter((p) => p.effective_status === 'available').length,
-      orders_total: one('SELECT COUNT(*) n FROM orders'),
-      revenue: one(`SELECT COALESCE(SUM(price),0) n FROM orders WHERE status IN ('confirmed','completed')`),
+      orders_total: one('SELECT COUNT(*) n FROM orders WHERE archived_at IS NULL'),
+      revenue: one(`SELECT COALESCE(SUM(price),0) n FROM orders WHERE status IN ('confirmed','completed') AND archived_at IS NULL`),
       pending_dealers: one(`SELECT COUNT(*) n FROM users WHERE role='dealer' AND status='pending'`),
       recent_orders: recent,
     });
@@ -402,13 +409,29 @@ function createApp(opts = {}) {
     ids.forEach((i) => { if (!Number.isInteger(i) || !db.prepare('SELECT 1 FROM vehicles WHERE id=?').get(i)) throw bad('Ugyldig bil i partiet'); });
     return { name, total_price, description, ids };
   }
+  function assertPackageMembership(ids, exceptPackageId) {
+    ids.forEach((vid) => {
+      const v = db.prepare('SELECT status FROM vehicles WHERE id=?').get(vid);
+      if (!v || v.status !== 'available') throw new HttpError(409, 'En bil i partiet er ikke tilgængelig');
+      const other = db.prepare('SELECT package_id FROM package_vehicles WHERE vehicle_id=? AND package_id<>?').get(vid, exceptPackageId || 0);
+      if (other) throw new HttpError(409, 'En bil indgår allerede i et andet parti');
+      if (activeOrderFor(vid)) throw new HttpError(409, 'En bil har en aktiv ordre');
+    });
+  }
   app.get('/api/admin/packages', requireAdmin, wrap((req, res) => {
     expireOrders();
     res.json({ packages: db.prepare('SELECT * FROM packages ORDER BY id DESC').all().map(pkgOut) });
   }));
+  app.get('/api/admin/packages/:id', requireAdmin, wrap((req, res) => {
+    expireOrders();
+    const p = pkgOut(db.prepare('SELECT * FROM packages WHERE id=?').get(idParam(req)));
+    if (!p) throw new HttpError(404, 'Parti ikke fundet');
+    res.json({ package: p });
+  }));
   app.post('/api/admin/packages', requireAdmin, wrap((req, res) => {
     const p = packageInput(req.body || {});
     const id = tx(() => {
+      assertPackageMembership(p.ids, 0);
       const r = db.prepare('INSERT INTO packages (name,total_price,description,created_at) VALUES (?,?,?,?)').run(p.name, p.total_price, p.description, new Date(now()).toISOString());
       const pid = Number(r.lastInsertRowid);
       p.ids.forEach((vid) => db.prepare('INSERT INTO package_vehicles (package_id,vehicle_id) VALUES (?,?)').run(pid, vid));
@@ -424,6 +447,7 @@ function createApp(opts = {}) {
     if (cur.status !== 'available') throw new HttpError(409, 'Partiet har en aktiv ordre og kan ikke redigeres');
     const p = packageInput(req.body || {});
     tx(() => {
+      assertPackageMembership(p.ids, id);
       db.prepare('UPDATE packages SET name=?,total_price=?,description=? WHERE id=?').run(p.name, p.total_price, p.description, id);
       db.prepare('DELETE FROM package_vehicles WHERE package_id=?').run(id);
       p.ids.forEach((vid) => db.prepare('INSERT INTO package_vehicles (package_id,vehicle_id) VALUES (?,?)').run(id, vid));
@@ -433,20 +457,128 @@ function createApp(opts = {}) {
   app.delete('/api/admin/packages/:id', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
     if (!db.prepare('SELECT 1 FROM packages WHERE id=?').get(id)) throw new HttpError(404, 'Parti ikke fundet');
-    if (db.prepare(`SELECT 1 FROM orders WHERE package_id=? AND status IN ('pending','confirmed')`).get(id)) throw new HttpError(409, 'Partiet har en aktiv ordre og kan ikke slettes');
+    if (db.prepare('SELECT 1 FROM orders WHERE package_id=?').get(id)) throw new HttpError(409, 'Partiet indgår i en ordre og kan ikke slettes');
     db.prepare('DELETE FROM packages WHERE id=?').run(id);
     res.json({ ok: true });
   }));
 
   // ---------- admin: orders ----------
+  const ORDER_LOCKED_FIELDS = ['agreement', 'dealer_id', 'kind', 'status', 'vehicle_id', 'package_id', 'password', 'password_hash', 'role', 'seller'];
+  function orderAdminOut(id) {
+    return orderOut(db.prepare('SELECT * FROM orders WHERE id=?').get(id), { withDealer: true, withAgreement: true });
+  }
   app.get('/api/admin/orders', requireAdmin, wrap((req, res) => {
     expireOrders();
-    let rows;
+    const archived = req.query.archived === '1';
+    const where = [archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'];
+    const params = [];
     if (req.query.status) {
       if (!ORDER_STATUSES.includes(req.query.status)) throw bad('Ugyldig status');
-      rows = db.prepare('SELECT * FROM orders WHERE status=? ORDER BY id DESC').all(req.query.status);
-    } else rows = db.prepare('SELECT * FROM orders ORDER BY id DESC').all();
+      where.push('status=?');
+      params.push(req.query.status);
+    }
+    const rows = db.prepare(`SELECT * FROM orders WHERE ${where.join(' AND ')} ORDER BY id DESC`).all(...params);
     res.json({ count: rows.length, orders: rows.map((o) => orderOut(o, { withDealer: true })) });
+  }));
+  app.put('/api/admin/orders/:id', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const b = req.body || {};
+    for (const key of ORDER_LOCKED_FIELDS) {
+      if (b[key] !== undefined) throw bad('Feltet kan ikke ændres her');
+    }
+    tx(() => {
+      const o = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+      if (!o) throw new HttpError(404, 'Ordre ikke fundet');
+      if (o.archived_at) throw new HttpError(409, 'En arkiveret ordre kan ikke redigeres. Gendan den først.');
+      const agreementBefore = o.agreement;
+      let label = o.item_label;
+      if (b.item_label !== undefined) label = str(b.item_label, { required: true, max: 200, field: 'Vare' });
+      let note = o.admin_note;
+      if (b.admin_note !== undefined) note = str(b.admin_note, { max: 1000, field: 'Intern note' });
+      let expires = o.expires_at;
+      if (b.expires_at !== undefined) {
+        if (!(o.kind === 'reserve' && o.status === 'pending')) throw bad('Udløb kan kun ændres på en afventende reservation');
+        const raw = str(b.expires_at, { required: true, max: 40, field: 'Udløb' });
+        const ms = Date.parse(raw);
+        if (!Number.isFinite(ms)) throw bad('Udløb er ugyldigt');
+        expires = new Date(ms).toISOString();
+      }
+      let price = o.price;
+      if (b.price !== undefined && b.price !== '' && int(b.price, { min: 1, max: 1e10, required: true, field: 'Pris' }) !== o.price) {
+        price = int(b.price, { min: 1, max: 1e10, required: true, field: 'Pris' });
+        const reason = str(b.correction_reason, { required: true, max: 500, field: 'Begrundelse' });
+        db.prepare('INSERT INTO order_corrections (order_id, previous_price, new_price, reason, admin_id, created_at) VALUES (?,?,?,?,?,?)')
+          .run(id, o.price, price, reason, req.user.id, new Date(now()).toISOString());
+      }
+      db.prepare('UPDATE orders SET item_label=?, admin_note=?, expires_at=?, price=? WHERE id=?').run(label, note, expires, price, id);
+      const after = db.prepare('SELECT agreement FROM orders WHERE id=?').get(id).agreement;
+      if (after !== agreementBefore) throw new HttpError(500, 'Aftalen må ikke ændres');
+    });
+    res.json({ order: orderAdminOut(id) });
+  }));
+  function archiveOrder(id, admin, note) {
+    return tx(() => {
+      const o = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+      if (!o) throw new HttpError(404, 'Ordre ikke fundet');
+      if (o.archived_at) throw new HttpError(409, 'Ordren er allerede arkiveret');
+      const agreementBefore = o.agreement;
+      if (o.status === 'pending') releaseOrder(o);
+      db.prepare('UPDATE orders SET archived_at=?, archived_by=?, archive_note=?, expires_at=CASE WHEN status=\'pending\' THEN NULL ELSE expires_at END WHERE id=?')
+        .run(new Date(now()).toISOString(), admin.id, note, id);
+      const after = db.prepare('SELECT agreement, price FROM orders WHERE id=?').get(id);
+      if (after.agreement !== agreementBefore || after.price !== o.price) throw new HttpError(500, 'Aftalen må ikke ændres');
+      return id;
+    });
+  }
+  function restoreOrder(id) {
+    return tx(() => {
+      const o = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+      if (!o) throw new HttpError(404, 'Ordre ikke fundet');
+      if (!o.archived_at) throw new HttpError(409, 'Ordren er ikke arkiveret');
+      const agreementBefore = o.agreement;
+      const vids = orderVehicles(o.id);
+      if (o.status === 'pending') {
+        for (const vid of vids) {
+          const v = db.prepare('SELECT status FROM vehicles WHERE id=?').get(vid);
+          if (!v || v.status !== 'available' || activeOrderFor(vid)) throw new HttpError(409, 'Ordren kan ikke gendannes, fordi en bil ikke længere er ledig');
+        }
+        if (o.package_id) {
+          const p = db.prepare('SELECT status FROM packages WHERE id=?').get(o.package_id);
+          if (!p || p.status !== 'available') throw new HttpError(409, 'Partiet er ikke længere ledigt');
+        }
+        for (const vid of vids) {
+          if (db.prepare(`UPDATE vehicles SET status='reserved' WHERE id=? AND status='available'`).run(vid).changes !== 1) throw new HttpError(409, 'Ordren kan ikke gendannes, fordi en bil ikke længere er ledig');
+        }
+        if (o.package_id && db.prepare(`UPDATE packages SET status='reserved' WHERE id=? AND status='available'`).run(o.package_id).changes !== 1) throw new HttpError(409, 'Partiet er ikke længere ledigt');
+        db.prepare('UPDATE orders SET archived_at=NULL, archived_by=NULL, archive_note=NULL, expires_at=? WHERE id=?').run(new Date(now() + RESERVE_MS).toISOString(), id);
+      } else if (o.status === 'confirmed' || o.status === 'completed') {
+        for (const vid of vids) {
+          const v = db.prepare('SELECT status FROM vehicles WHERE id=?').get(vid);
+          if (v && v.status !== 'sold') throw new HttpError(409, 'Gendannelse sætter ikke en ledig eller reserveret bil til solgt. Ordren forbliver arkiveret.');
+        }
+        if (o.package_id) {
+          const p = db.prepare('SELECT status FROM packages WHERE id=?').get(o.package_id);
+          if (p && p.status !== 'sold') throw new HttpError(409, 'Gendannelse ændrer ikke partiets lagerstatus. Ordren forbliver arkiveret.');
+        }
+        db.prepare('UPDATE orders SET archived_at=NULL, archived_by=NULL, archive_note=NULL WHERE id=?').run(id);
+      } else {
+        db.prepare('UPDATE orders SET archived_at=NULL, archived_by=NULL, archive_note=NULL WHERE id=?').run(id);
+      }
+      const after = db.prepare('SELECT agreement, price FROM orders WHERE id=?').get(id);
+      if (after.agreement !== agreementBefore || after.price !== o.price) throw new HttpError(500, 'Aftalen må ikke ændres');
+      return id;
+    });
+  }
+  app.post('/api/admin/orders/:id/archive', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const note = str((req.body || {}).note, { max: 500, field: 'Note' });
+    archiveOrder(id, req.user, note);
+    res.json({ order: orderAdminOut(id) });
+  }));
+  app.post('/api/admin/orders/:id/restore', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    restoreOrder(id);
+    res.json({ order: orderAdminOut(id) });
   }));
   app.post('/api/admin/orders/:id/:action', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
@@ -456,6 +588,7 @@ function createApp(opts = {}) {
     tx(() => {
       const o = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
       if (!o) throw new HttpError(404, 'Ordre ikke fundet');
+      if (o.archived_at) throw new HttpError(409, 'En arkiveret ordre kan ikke ændres. Gendan den først.');
       if (action === 'confirm') {
         if (o.status !== 'pending') throw new HttpError(409, 'Kun afventende ordrer kan bekræftes');
         db.prepare(`UPDATE orders SET status='confirmed', expires_at=NULL WHERE id=?`).run(id);
@@ -477,6 +610,27 @@ function createApp(opts = {}) {
   app.get('/api/admin/dealers', requireAdmin, wrap((req, res) => {
     const rows = db.prepare(`SELECT id,email,name,company_name,cvr,city,status,created_at FROM users WHERE role='dealer' ORDER BY id DESC`).all();
     res.json({ dealers: rows });
+  }));
+  app.put('/api/admin/dealers/:id', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const b = req.body || {};
+    for (const key of ['password', 'password_hash', 'role', 'status']) {
+      if (b[key] !== undefined) throw bad('Feltet kan ikke ændres her');
+    }
+    const company = str(b.company_name, { required: true, max: 120, field: 'Firmanavn' });
+    const cvr = str(b.cvr, { required: true, max: 20, field: 'CVR' }).replace(/\s|^DK/gi, '');
+    if (!/^\d{8}$/.test(cvr)) throw bad('CVR-nummer skal være 8 cifre');
+    const city = str(b.city, { required: true, max: 80, field: 'By' });
+    const name = str(b.name, { required: true, max: 120, field: 'Navn' });
+    const email = checkEmail(b.email);
+    const d = db.prepare(`SELECT id, role, password_hash FROM users WHERE id=? AND role='dealer'`).get(id);
+    if (!d) throw new HttpError(404, 'Forhandler ikke fundet');
+    if (db.prepare('SELECT 1 FROM users WHERE email=? AND id<>?').get(email, id)) throw new HttpError(409, 'E-mail er allerede i brug');
+    if (db.prepare(`SELECT 1 FROM users WHERE cvr=? AND role='dealer' AND status IN ('pending','approved') AND id<>?`).get(cvr, id)) throw new HttpError(409, 'CVR-nummer er allerede registreret');
+    db.prepare(`UPDATE users SET company_name=?, cvr=?, city=?, name=?, email=? WHERE id=? AND role='dealer'`).run(company, cvr, city, name, email, id);
+    const row = db.prepare('SELECT id,email,name,company_name,cvr,city,status,role,password_hash FROM users WHERE id=?').get(id);
+    if (row.role !== 'dealer' || row.password_hash !== d.password_hash) throw new HttpError(500, 'Kontoen må ikke ændre rolle eller adgangskode');
+    res.json({ dealer: { id: row.id, email: row.email, name: row.name, company_name: row.company_name, cvr: row.cvr, city: row.city, status: row.status } });
   }));
   app.post('/api/admin/dealers/:id/:action', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
@@ -506,7 +660,7 @@ function createApp(opts = {}) {
     if (req.query.fuel) { if (!FUELS.includes(req.query.fuel)) throw bad('Ugyldig brændstoftype'); where.push('fuel=?'); p.push(req.query.fuel); }
     res.json({ vehicles: db.prepare(`SELECT * FROM vehicles WHERE ${where.join(' AND ')} ORDER BY id DESC`).all(...p).map(vehicleOut) });
   }));
-  const myHold = (vehicleId, dealerId) => db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.dealer_id=? AND o.status='pending' AND o.kind='reserve'`).get(vehicleId, dealerId);
+  const myHold = (vehicleId, dealerId) => db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.dealer_id=? AND o.status='pending' AND o.kind='reserve' AND o.archived_at IS NULL`).get(vehicleId, dealerId);
   app.get('/api/shop/vehicles/:id', requireDealer, wrap((req, res) => {
     expireOrders();
     const v = getVehicle(idParam(req));
@@ -545,7 +699,7 @@ function createApp(opts = {}) {
           return createOrder({ dealer: req.user, kind, vehicle: v });
         }
         const p = pkgOut(db.prepare('SELECT * FROM packages WHERE id=?').get(id)); if (!p) throw new HttpError(404, 'Partiet findes ikke');
-        const mine = kind === 'buy' ? db.prepare(`SELECT * FROM orders WHERE package_id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).get(id, req.user.id) : null;
+        const mine = kind === 'buy' ? db.prepare(`SELECT * FROM orders WHERE package_id=? AND dealer_id=? AND status='pending' AND kind='reserve' AND archived_at IS NULL`).get(id, req.user.id) : null;
         if (mine) {
           const claimed = db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).run(p.total_price, mine.id, req.user.id);
           if (claimed.changes !== 1) throw new HttpError(409, 'Reservationen kan ikke længere omsættes til køb');
@@ -579,6 +733,7 @@ function createApp(opts = {}) {
     tx(() => {
       const o = db.prepare('SELECT * FROM orders WHERE id=? AND dealer_id=?').get(id, req.user.id);
       if (!o) throw new HttpError(404, 'Ordre ikke fundet');
+      if (o.archived_at) throw new HttpError(409, 'Ordren er arkiveret');
       if (o.status !== 'pending') throw new HttpError(409, 'Kun afventende reservationer kan annulleres');
       db.prepare(`UPDATE orders SET status='cancelled' WHERE id=?`).run(id);
       releaseOrder(o);

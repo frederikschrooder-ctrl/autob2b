@@ -260,8 +260,8 @@ test('non-admins (dealer, pending, anonymous) are blocked from EVERY admin endpo
     ['GET', '/api/admin/stats'], ['GET', '/api/admin/vehicles'], ['GET', `/api/admin/vehicles/${v.id}`], ['POST', '/api/admin/vehicles', car(81)],
     ['PUT', `/api/admin/vehicles/${v.id}`, car(80)], ['DELETE', `/api/admin/vehicles/${v.id}`], ['POST', '/api/admin/uploads', Buffer.alloc(20)],
     ['GET', '/api/admin/packages'], ['POST', '/api/admin/packages', { name: 'x', total_price: 1 }], ['PUT', '/api/admin/packages/1', { name: 'x', total_price: 1 }], ['DELETE', '/api/admin/packages/1'],
-    ['GET', '/api/admin/orders'], ['POST', '/api/admin/orders/1/confirm', {}], ['POST', '/api/admin/orders/1/cancel', {}], ['POST', '/api/admin/orders/1/complete', {}],
-    ['GET', '/api/admin/dealers'], ['POST', `/api/admin/dealers/${pending.id}/approve`, {}], ['POST', `/api/admin/dealers/${pending.id}/reject`, {}],
+    ['GET', '/api/admin/orders'], ['GET', '/api/admin/orders?archived=1'], ['PUT', '/api/admin/orders/1', { item_label: 'x' }], ['POST', '/api/admin/orders/1/archive', {}], ['POST', '/api/admin/orders/1/restore', {}], ['POST', '/api/admin/orders/1/confirm', {}], ['POST', '/api/admin/orders/1/cancel', {}], ['POST', '/api/admin/orders/1/complete', {}],
+    ['GET', '/api/admin/dealers'], ['PUT', '/api/admin/dealers/1', { company_name: 'A', cvr: '12345678', city: 'A', name: 'A', email: 'a@example.test' }], ['POST', `/api/admin/dealers/${pending.id}/approve`, {}], ['POST', `/api/admin/dealers/${pending.id}/reject`, {}],
     ['POST', '/api/admin/admins', { email: 'evil@example.test', name: 'Evil', password: 'Evil-password-123' }],
   ];
   for (const [m, u, b] of endpoints) {

@@ -105,6 +105,16 @@ On a new agreement, the invoice sentence names the configured legal seller. The 
 
 An existing `/srv/autob2b/secrets.env` that has only the bootstrap keys still starts this build. Buys stay closed until the three seller lines are added and the process is restarted. Adding the lines does not by itself open the public site. Leave the public maintenance response in place until that is a separate decision. Do not put the secrets file in a release archive.
 
+## Admin edits and archive
+
+Starting this build, the process adds `admin_note`, `archived_at`, `archived_by`, and `archive_note` to `orders` if they are missing, and creates `order_corrections` if it is missing. Existing agreement JSON is not read or rewritten by that step. A database from the previous build opens without a manual migration.
+
+Slet on an order archives it. The row, the agreement, and the price stored inside the agreement stay. The order leaves the dashboard counts and the default order list. Arkiv lists it, and Gendan puts it back without changing the agreement. Archiving a pending reservation releases that hold. Archiving a confirmed or completed sale does not put the car or the lot back on sale. There is no action that archives every order.
+
+A price correction requires a written reason. It appends a row to `order_corrections` and updates the operational order price. It does not change the agreement. Dealer passwords, roles, and the secrets file are not editable from these screens. An administrator account cannot be deleted or demoted here.
+
+Rollback of the application to the previous build leaves the new columns and the corrections table in place. That older build does not read them and does not delete them. Take the usual data backup before replacing the running build. Do not delete `order_corrections` or the agreement column as part of a rollback.
+
 ## One-time admin bootstrap
 
 On every start the process counts rows with `role = 'admin'`.

@@ -57,7 +57,20 @@ function openDb(file) {
     item_label TEXT NOT NULL,
     expires_at TEXT,
     agreement TEXT,
+    admin_note TEXT,
+    archived_at TEXT,
+    archived_by INTEGER,
+    archive_note TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+  CREATE TABLE IF NOT EXISTS order_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    previous_price INTEGER NOT NULL,
+    new_price INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    admin_id INTEGER,
+    created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS order_vehicles (
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -72,6 +85,12 @@ function openDb(file) {
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
   `);
+  const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+  const addOrderCol = (name, ddl) => { if (!orderCols.includes(name)) db.exec(ddl); };
+  addOrderCol('admin_note', 'ALTER TABLE orders ADD COLUMN admin_note TEXT');
+  addOrderCol('archived_at', 'ALTER TABLE orders ADD COLUMN archived_at TEXT');
+  addOrderCol('archived_by', 'ALTER TABLE orders ADD COLUMN archived_by INTEGER');
+  addOrderCol('archive_note', 'ALTER TABLE orders ADD COLUMN archive_note TEXT');
   return db;
 }
 module.exports = { openDb };
