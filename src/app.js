@@ -8,6 +8,7 @@ const A = require('./auth');
 const { bootstrapAdmin } = require('./bootstrap-admin');
 const { resolveTrustProxy } = require('./runtime-config');
 const { minLengthForRole, passwordPolicyError } = require('./password-policy');
+const { parseSellerIdentity, BUY_CLOSED } = require('./seller-identity');
 
 const FUELS = ['el', 'hybrid', 'benzin', 'diesel'];
 const TRANSMISSIONS = ['automatic', 'manual'];
@@ -59,6 +60,8 @@ function createApp(opts = {}) {
   const log = opts.logger?.log || (opts.bootstrapLog ? (...a) => console.log(...a) : () => {});
   const error = opts.logger?.error || (opts.bootstrapLog ? (...a) => console.error(...a) : () => {});
   const bootstrap = bootstrapAdmin(db, opts.env || {}, { log, error });
+  const sellerIdentity = parseSellerIdentity(opts.env || {});
+  if (!sellerIdentity.ok) log('Seller identity is incomplete or invalid. New purchase agreements are closed until SELLER_LEGAL_NAME, SELLER_CVR, and SELLER_ADDRESS are valid. Reservations are unchanged.');
   fs.mkdirSync(uploadDir, { recursive: true });
   const app = express();
   app.disable('x-powered-by');
@@ -113,7 +116,13 @@ function createApp(opts = {}) {
     });
   }
 
+  function requireSeller() {
+    if (!sellerIdentity.ok) throw new HttpError(503, BUY_CLOSED);
+    return sellerIdentity.seller;
+  }
+
   function buildAgreement(order, dealer, items) {
+    const seller = requireSeller();
     const catalog_sum = items.reduce((s, i) => s + (Number(i.price) || 0), 0);
     const agreed = order.price;
     const vat = Math.round(agreed * VAT_RATE);
@@ -121,7 +130,7 @@ function createApp(opts = {}) {
     const agreement = {
       number: `AG-${d.getUTCFullYear()}-${String(order.id).padStart(5, '0')}`,
       date: d.toISOString(),
-      seller: { name: 'AutoB2B' },
+      seller: { name: seller.name, cvr: seller.cvr, address: seller.address },
       buyer: { company: dealer.company_name, cvr: dealer.cvr, city: dealer.city, contact: dealer.name, email: dealer.email },
       subject: order.item_label,
       items: items.map((i) => ({ vin: i.vin, description: vehicleLabel(i), price: i.price })),
@@ -148,6 +157,7 @@ function createApp(opts = {}) {
   }
 
   function createOrder({ dealer, kind, vehicle, pkg }) {
+    if (kind === 'buy') requireSeller();
     const isPkg = !!pkg;
     const cars = isPkg ? pkgCars(pkg.id) : [vehicle];
     if (isPkg && cars.length === 0) throw new HttpError(409, 'Partiet indeholder ingen biler');
@@ -519,6 +529,7 @@ function createApp(opts = {}) {
       expireOrders();
       const id = idParam(req);
       const orderId = tx(() => {
+        if (kind === 'buy') requireSeller();
         if (target === 'vehicle') {
           const v = getVehicle(id); if (!v) throw new HttpError(404, 'Bilen findes ikke');
           const mine = kind === 'buy' ? myHold(id, req.user.id) : null;

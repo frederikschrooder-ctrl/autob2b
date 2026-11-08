@@ -14,7 +14,10 @@ function fresh() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-race-'));
   const dbFile = path.join(dir, 't.sqlite');
   const uploadDir = path.join(dir, 'up');
-  const ctx = createApp({ dbFile, uploadDir, env: {}, noTimer: true, rateLimit: false });
+  const ctx = createApp({
+    dbFile, uploadDir, noTimer: true, rateLimit: false,
+    env: { SELLER_LEGAL_NAME: 'Test Sælger', SELLER_CVR: '12345678', SELLER_ADDRESS: 'Testvej 1, 8000 Aarhus' },
+  });
   return { dir, dbFile, uploadDir, ctx };
 }
 
@@ -33,7 +36,11 @@ function buyPair(envA, envB) {
   function once(env) {
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [worker], {
-        env: { PATH: process.env.PATH || '', HOME: process.env.HOME || '', ...env },
+        env: {
+          PATH: process.env.PATH || '', HOME: process.env.HOME || '',
+          SELLER_LEGAL_NAME: 'Test Sælger', SELLER_CVR: '12345678', SELLER_ADDRESS: 'Testvej 1, 8000 Aarhus',
+          ...env,
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let out = '';

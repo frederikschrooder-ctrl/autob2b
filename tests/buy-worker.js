@@ -5,7 +5,11 @@ async function main() {
   const ctx = createApp({
     dbFile: process.env.DB_FILE,
     uploadDir: process.env.UPLOAD_DIR,
-    env: {},
+    env: {
+      SELLER_LEGAL_NAME: process.env.SELLER_LEGAL_NAME || '',
+      SELLER_CVR: process.env.SELLER_CVR || '',
+      SELLER_ADDRESS: process.env.SELLER_ADDRESS || '',
+    },
     noTimer: true,
     rateLimit: false,
   });

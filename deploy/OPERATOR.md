@@ -52,7 +52,7 @@ Set by `docker-compose.yml`. Do not put passwords in this list or in the shell h
 | `NODE_ENV` | `production` | Production mode |
 | `DB_FILE` | `/data/autob2b.sqlite` | SQLite path inside the container |
 | `UPLOAD_DIR` | `/uploads` | Image directory inside the container |
-| `SECRETS_FILE` | `/secrets/secrets.env` | Bootstrap file. When this is set, bootstrap values are read only from that file, not from the process environment. |
+| `SECRETS_FILE` | `/secrets/secrets.env` | Bootstrap and seller file. When this is set, those values are read only from that file, not from the process environment. |
 
 `docker compose` must not use `env_file:` for the password. The password stays in the mounted file so it is not copied into the compose service environment.
 
@@ -66,8 +66,11 @@ Allowed keys, and no others:
 
 ```
 BOOTSTRAP_ADMIN_EMAIL=<operator email>
-BOOTSTRAP_ADMIN_PASSWORD=<unique password, 10 to 200 characters>
+BOOTSTRAP_ADMIN_PASSWORD=<unique password, 4 to 200 characters>
 BOOTSTRAP_ADMIN_NAME=<display name, optional>
+SELLER_LEGAL_NAME=Højbogaard Biler
+SELLER_CVR=14952705
+SELLER_ADDRESS=Teknologiparken 4, 9440 Aabybro, Denmark
 ```
 
 Rules enforced by the process:
@@ -81,6 +84,26 @@ Rules enforced by the process:
 - Do not pass the password as a `docker compose` argument, a shell argument, or a `curl` command saved in shell history.
 
 `deploy/secrets.env.example` shows the key names with an empty password. Copying it unchanged will not create an admin.
+
+## Seller on a new purchase agreement
+
+A dealer buy, including turning that dealer's own reservation into a buy, writes the seller onto the agreement and then stores that JSON. A later change to the secrets file does not rewrite an agreement that is already stored. Reservations do not require a seller and do not create an agreement.
+
+All three seller values are required. If any one is missing, not text, or invalid, the buy responds `503` and does not create or convert an order. The legal name is at most 200 characters. The CVR is exactly eight digits. The address is one line of at most 300 characters. A control character is rejected. The process still starts, so administration and reservations keep working.
+
+The name `Højbogaard Biler` is the legal name published for CVR `14952705` on proff.dk, together with the address Teknologiparken 4, 9440 Aabybro, the form enkeltmandsvirksomhed, status Normal, and the start date 29.04.1991. The same CVR and the name appear on https://www.hbg.dk/kontakt, which shows the visiting address Teknologiparken 2-4. datacvr.virk.dk was not available for a direct register check. This is not an official register confirmation. The agreement uses the owner-supplied address line, including the word Denmark:
+
+```
+SELLER_LEGAL_NAME=Højbogaard Biler
+SELLER_CVR=14952705
+SELLER_ADDRESS=Teknologiparken 4, 9440 Aabybro, Denmark
+```
+
+Do not add `SELLER_EMAIL`, `SELLER_PHONE`, or any other key. An unsupported key prevents startup. Public email and phone are not selected. The sales address, phone, and mail published on hbg.dk are not copied onto the agreement.
+
+The five existing terms are unchanged. They still name AutoB2B in the invoice sentence, and they still say the agreement is binding when it is generated. Those sentences were not reviewed as legal terms. There is no admin screen for the seller; the secrets file is the only setting.
+
+An existing `/srv/autob2b/secrets.env` that has only the bootstrap keys still starts this build. Buys stay closed until the three seller lines are added and the process is restarted. Adding the lines does not by itself open the public site. Leave the public maintenance response in place until that is a separate decision. Do not put the secrets file in a release archive.
 
 ## One-time admin bootstrap
 

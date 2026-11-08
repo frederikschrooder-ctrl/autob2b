@@ -4,6 +4,14 @@ const S = { user: null };
 
 // ---------- utils ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function sellerBlock(seller) {
+  const s = seller && typeof seller === 'object' ? seller : {};
+  const lines = [];
+  if (s.name) lines.push(esc(s.name));
+  if (s.cvr) lines.push('CVR: ' + esc(s.cvr));
+  if (s.address) lines.push(esc(s.address));
+  return lines.join('<br>');
+}
 const dkk = (n) => new Intl.NumberFormat('da-DK').format(n ?? 0) + ' DKK';
 const num = (n) => new Intl.NumberFormat('da-DK').format(n ?? 0);
 const dt = (s) => (s ? new Date(s).toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -505,7 +513,7 @@ async function agreementPage(id) {
   const a = o.agreement; if (!a) return wrapper('<div class="notice">Denne ordre har endnu ingen købsaftale (kun reservation).</div>');
   wrapper(`<p class="noprint">${link(S.user.role === 'admin' ? '/dashboard/orders' : '/shop/orders', '← Tilbage til ordrer')} · <a href="#" id="pr">Print</a></p>
   <div class="agreement"><h1>Købsaftale</h1><p class="muted">Aftalenr. <b>${esc(a.number)}</b> · ${dt(a.date)}</p>
-  <h3>Sælger</h3><p>${esc(a.seller.name)}</p>
+  <h3>Sælger</h3><p>${sellerBlock(a.seller)}</p>
   <h3>Køber</h3><p>${esc(a.buyer.company)}<br>CVR: ${esc(a.buyer.cvr)} · ${esc(a.buyer.city)}<br>Kontakt: ${esc(a.buyer.contact)} (${esc(a.buyer.email)})</p>
   <h3>Genstand: ${esc(a.subject)}</h3><div class="tablewrap"><table><thead><tr><th>Køretøj</th><th>VIN</th><th style="text-align:right">${a.package_breakdown ? 'Katalogpris' : 'Pris'}</th></tr></thead><tbody>${a.items.map((i) => `<tr>${cell('Køretøj', esc(i.description))}${cell('VIN', esc(i.vin))}${cell(a.package_breakdown ? 'Katalogpris' : 'Pris', i.price ? dkk(i.price) : '')}</tr>`).join('')}</tbody></table></div>
   <table class="spec" style="margin-top:1rem">${a.package_breakdown ? `<tr><td>Sum af katalogpriser</td><td style="text-align:right">${dkk(a.package_breakdown.catalog_sum)}</td></tr><tr><td>${a.package_breakdown.adjustment < 0 ? 'Prisjustering (rabat)' : a.package_breakdown.adjustment > 0 ? 'Prisjustering (tillæg)' : 'Prisjustering'}</td><td style="text-align:right">${dkk(a.package_breakdown.adjustment)}</td></tr><tr><td>Aftalt pakkepris ekskl. moms</td><td style="text-align:right">${dkk(a.price_excl_vat)}</td></tr>` : `<tr><td>Pris ekskl. moms</td><td style="text-align:right">${dkk(a.price_excl_vat)}</td></tr>`}<tr><td>Moms (${a.vat_rate * 100}%)</td><td style="text-align:right">${dkk(a.vat)}</td></tr><tr><td><b>I alt inkl. moms</b></td><td style="text-align:right"><b>${dkk(a.total_incl_vat)}</b></td></tr></table>

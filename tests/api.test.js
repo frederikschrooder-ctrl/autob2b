@@ -9,7 +9,10 @@ const { hashPassword } = require('../src/auth');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-'));
 let clock = Date.now();
-const ctx = createApp({ dbFile: path.join(tmp, 't.sqlite'), uploadDir: path.join(tmp, 'up'), now: () => clock, noTimer: true, rateLimit: false, env: {} });
+const ctx = createApp({
+  dbFile: path.join(tmp, 't.sqlite'), uploadDir: path.join(tmp, 'up'), now: () => clock, noTimer: true, rateLimit: false,
+  env: { SELLER_LEGAL_NAME: 'Test Sælger', SELLER_CVR: '12345678', SELLER_ADDRESS: 'Testvej 1, 8000 Aarhus' },
+});
 let base; let server;
 const ADMIN_PW = 'Test-Admin-Pass-123!';
 
@@ -171,6 +174,7 @@ test('dealer: buy now -> order + auto-generated agreement; vehicle sold; ownersh
   assert.equal(b.status, 201); assert.equal(b.json.order.kind, 'buy'); assert.equal(b.json.order.status, 'confirmed');
   const ag = b.json.order.agreement;
   assert.match(ag.number, /^AG-\d{4}-\d{5}$/); assert.equal(ag.price_excl_vat, 200000); assert.equal(ag.vat, 50000); assert.equal(ag.total_incl_vat, 250000);
+  assert.equal(ag.seller.name, 'Test Sælger'); assert.equal(ag.seller.cvr, '12345678'); assert.equal(ag.seller.address, 'Testvej 1, 8000 Aarhus');
   assert.equal(ag.buyer.cvr, '10000005'); assert.equal(ag.items[0].vin, v.vin);
   assert.equal((await a.get(`/api/admin/vehicles/${v.id}`)).json.vehicle.status, 'sold');
   const got = await d.c.get(`/api/orders/${b.json.order.id}`); assert.equal(got.status, 200); assert.equal(got.json.order.agreement.number, ag.number);

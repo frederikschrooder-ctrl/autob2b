@@ -1,7 +1,9 @@
 'use strict';
 const fs = require('node:fs');
+const { SELLER_KEYS } = require('./seller-identity');
 
 const BOOTSTRAP_KEYS = ['BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'BOOTSTRAP_ADMIN_NAME'];
+const ALLOWED_SECRET_KEYS = BOOTSTRAP_KEYS.concat(SELLER_KEYS);
 
 function assertLoopbackHost(host) {
   if (String(host || '') !== '127.0.0.1') {
@@ -41,6 +43,14 @@ function parseEnvFile(text) {
   return out;
 }
 
+function sellerFields(src) {
+  return {
+    SELLER_LEGAL_NAME: typeof src.SELLER_LEGAL_NAME === 'string' ? src.SELLER_LEGAL_NAME : '',
+    SELLER_CVR: typeof src.SELLER_CVR === 'string' ? src.SELLER_CVR : '',
+    SELLER_ADDRESS: typeof src.SELLER_ADDRESS === 'string' ? src.SELLER_ADDRESS : '',
+  };
+}
+
 function loadBootstrapConfig(env) {
   const src = env || {};
   if (!src.SECRETS_FILE) {
@@ -48,6 +58,7 @@ function loadBootstrapConfig(env) {
       BOOTSTRAP_ADMIN_EMAIL: src.BOOTSTRAP_ADMIN_EMAIL || '',
       BOOTSTRAP_ADMIN_PASSWORD: typeof src.BOOTSTRAP_ADMIN_PASSWORD === 'string' ? src.BOOTSTRAP_ADMIN_PASSWORD : '',
       BOOTSTRAP_ADMIN_NAME: src.BOOTSTRAP_ADMIN_NAME || '',
+      ...sellerFields(src),
     };
   }
   const file = src.SECRETS_FILE;
@@ -63,13 +74,14 @@ function loadBootstrapConfig(env) {
   try { text = fs.readFileSync(file, 'utf8'); }
   catch { throw new Error('SECRETS_FILE could not be read.'); }
   const parsed = parseEnvFile(text);
-  const unknown = Object.keys(parsed).filter((k) => !BOOTSTRAP_KEYS.includes(k));
+  const unknown = Object.keys(parsed).filter((k) => !ALLOWED_SECRET_KEYS.includes(k));
   if (unknown.length) throw new Error('SECRETS_FILE contains unsupported keys: ' + unknown.join(', ') + '.');
   return {
     BOOTSTRAP_ADMIN_EMAIL: parsed.BOOTSTRAP_ADMIN_EMAIL || '',
     BOOTSTRAP_ADMIN_PASSWORD: typeof parsed.BOOTSTRAP_ADMIN_PASSWORD === 'string' ? parsed.BOOTSTRAP_ADMIN_PASSWORD : '',
     BOOTSTRAP_ADMIN_NAME: parsed.BOOTSTRAP_ADMIN_NAME || '',
+    ...sellerFields(parsed),
   };
 }
 
-module.exports = { assertLoopbackHost, assertSecretsOwner, resolveTrustProxy, loadBootstrapConfig, parseEnvFile, BOOTSTRAP_KEYS };
+module.exports = { assertLoopbackHost, assertSecretsOwner, resolveTrustProxy, loadBootstrapConfig, parseEnvFile, BOOTSTRAP_KEYS, ALLOWED_SECRET_KEYS };

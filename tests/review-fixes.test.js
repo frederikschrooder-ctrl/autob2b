@@ -11,7 +11,10 @@ const { assertSecretsOwner, assertLoopbackHost } = require('../src/runtime-confi
 function boot() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-fix-'));
   const uploadDir = path.join(dir, 'up');
-  const ctx = createApp({ dbFile: path.join(dir, 't.sqlite'), uploadDir, env: {}, noTimer: true, rateLimit: false });
+  const ctx = createApp({
+    dbFile: path.join(dir, 't.sqlite'), uploadDir, noTimer: true, rateLimit: false,
+    env: { SELLER_LEGAL_NAME: 'Test Sælger', SELLER_CVR: '12345678', SELLER_ADDRESS: 'Testvej 1, 8000 Aarhus' },
+  });
   ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name,cvr,city) VALUES (?,?,?,'admin','approved',?,?,?)`)
     .run('fix-admin@example.test', 'Admin', hashPassword('Fix-Admin-Pass-1'), 'Admin', null, null);
   ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name,cvr,city) VALUES (?,?,?,'dealer','approved',?,?,?)`)

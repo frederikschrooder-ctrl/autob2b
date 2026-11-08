@@ -7,9 +7,15 @@ const path = require('node:path');
 const { createApp } = require('../src/app');
 const { hashPassword } = require('../src/auth');
 
+const OWNER_SELLER = {
+  SELLER_LEGAL_NAME: 'Højbogaard Biler',
+  SELLER_CVR: '14952705',
+  SELLER_ADDRESS: 'Teknologiparken 4, 9440 Aabybro, Denmark',
+};
+
 function boot() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-ag-'));
-  const ctx = createApp({ dbFile: path.join(dir, 't.sqlite'), uploadDir: path.join(dir, 'up'), env: {}, noTimer: true, rateLimit: false });
+  const ctx = createApp({ dbFile: path.join(dir, 't.sqlite'), uploadDir: path.join(dir, 'up'), env: OWNER_SELLER, noTimer: true, rateLimit: false });
   ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status) VALUES (?,?,?,'admin','approved')`).run('ag-admin@example.test', 'Admin', hashPassword('Agreement-Admin-1'));
   ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name,cvr,city) VALUES (?,?,?,'dealer','approved',?,?,?)`).run('ag-dealer@example.test', 'Dealer', hashPassword('Agreement-Dealer-1'), 'Testforhandler', '11223344', 'Aarhus');
   return ctx;
@@ -46,8 +52,13 @@ test('single car agreement stays price plus 25 percent VAT', async () => {
     assert.equal(ag.vat, 250);
     assert.equal(ag.total_incl_vat, 1250);
     assert.equal(ag.items[0].price, 1000);
-    assert.equal(ag.seller.name, 'AutoB2B');
-    assert.equal(ag.seller.cvr, undefined);
+    assert.equal(ag.seller.name, 'Højbogaard Biler');
+    assert.equal(ag.seller.cvr, '14952705');
+    assert.equal(ag.seller.address, 'Teknologiparken 4, 9440 Aabybro, Denmark');
+    assert.equal(ag.seller.email, undefined);
+    assert.equal(ag.seller.phone, undefined);
+    assert.equal(ag.terms[3], 'Betaling sker efter faktura fra AutoB2B. Levering aftales efter modtaget betaling.');
+    assert.equal(ag.terms[4], 'Aftalen er bindende fra det tidspunkt, den er genereret i systemet.');
   } finally { live.server.close(); ctx.close(); }
 });
 
@@ -76,6 +87,10 @@ test('package agreement explains catalog sum, adjustment, and agreed price witho
     assert.equal(discount.price_excl_vat, 4500);
     assert.equal(discount.vat, 1125);
     assert.equal(discount.total_incl_vat, 5625);
+    assert.equal(discount.seller.name, 'Højbogaard Biler');
+    assert.equal(discount.seller.cvr, '14952705');
+    assert.equal(discount.seller.address, 'Teknologiparken 4, 9440 Aabybro, Denmark');
+    assert.equal(discount.seller.email, undefined);
 
     const extra = await pack([2000, 3000], 5500, 'TILLAEGVIN0000');
     assert.equal(extra.package_breakdown.catalog_sum, 5000);
@@ -107,4 +122,8 @@ test('printable agreement names the package adjustment', () => {
   assert.match(src, /Prisjustering \(tillæg\)/);
   assert.match(src, /Aftalt pakkepris ekskl\. moms/);
   assert.match(src, /Katalogpris/);
+  assert.match(src, /function sellerBlock/);
+  assert.match(src, /sellerBlock\(a\.seller\)/);
+  assert.doesNotMatch(src, /\$\{a\.seller\.name\}/);
+  assert.doesNotMatch(src, /Højbogaard/);
 });
