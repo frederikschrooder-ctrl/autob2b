@@ -77,7 +77,7 @@ Rules enforced by the process:
 
 - Both email and password are required to create an account. A missing or empty value does not fall back to a built-in account.
 - An administrator password must be 4 to 200 characters. Longer passwords are allowed. Passwords of 0–3 characters are refused for bootstrap, for changing an admin password, and for creating another administrator.
-- A dealer password stays at 10 to 200 characters. Dealer registration and dealer password change do not use the administrator minimum.
+- A dealer password is 4 to 200 characters, the same minimum as an administrator. Dealer registration and dealer password change use that minimum. Existing password hashes are not rewritten.
 - The password must not equal the email, must not be a placeholder such as `changeme`, `password`, or `password123`, and must not be either password that was published in earlier commits of this repository. Those two values are rejected by a SHA-256 denylist. Their plaintext is not in this tree. Choose a new password.
 - The file is rejected if group or other permission bits are set, if it is larger than 16 KiB, or if it contains any other key.
 - The password and email are not written to stdout or stderr.

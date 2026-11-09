@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ADMIN_MIN = 4;
-const DEALER_MIN = 10;
+const DEALER_MIN = 4;
 const MAX = 200;
 
 let denylist;

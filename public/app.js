@@ -93,8 +93,8 @@ function authPage(kind) {
       <div class="grid2"><div><label>CVR-nummer</label><input name="cvr" required inputmode="numeric" maxlength="10"></div><div><label>By</label><input name="city" required autocomplete="address-level2"></div></div>
       <label>Mobilnummer</label><input type="tel" name="phone" required autocomplete="tel" inputmode="tel" maxlength="32" placeholder="+45 12 34 56 78">`}
     <label>E-mail</label><input type="email" name="email" required autocomplete="email">
-    <label>Adgangskode</label><input type="password" name="password" required autocomplete="${isLogin ? 'current-password' : 'new-password'}" ${isLogin ? '' : 'minlength="10"'}>
-    ${isLogin ? '' : '<div class="muted" style="font-size:.8rem">Mindst 10 tegn.</div>'}
+    <label>Adgangskode</label><input type="password" name="password" required autocomplete="${isLogin ? 'current-password' : 'new-password'}" ${isLogin ? '' : 'minlength="4"'}>
+    ${isLogin ? '' : '<div class="muted" style="font-size:.8rem">Mindst 4 tegn.</div>'}
     <button class="btn" type="submit">${isLogin ? 'Log Ind' : 'Send Ansøgning'}</button>
     <div class="links">${isLogin ? link('/register', 'Ansøg om forhandlerkonto') : link('/login', 'Har du allerede en konto? Log ind')}${link('/', '← Tilbage')}</div>
   </form></div>`;
@@ -103,7 +103,7 @@ function authPage(kind) {
     const f = e.target; const msg = document.getElementById('msg'); const btn = f.querySelector('button');
     const d = Object.fromEntries(new FormData(f)); btn.disabled = true;
     try {
-      if (!isLogin && String(d.password || '').length < 10) throw new Error('Adgangskoden skal være mindst 10 tegn');
+      if (!isLogin && String(d.password || '').length < 4) throw new Error('Adgangskoden skal være mindst 4 tegn');
       if (!isLogin && String(d.phone || '').replace(/\D/g, '').length < 8) throw new Error('Mobilnummer skal være 8-15 cifre');
       if (isLogin) {
         const r = await api('POST', '/api/auth/login', d); S.user = r.user;
@@ -664,7 +664,7 @@ async function agreementPage(id) {
 
 // ---------- password ----------
 function passwordPage() {
-  const minPw = Number(S.user.password_min_length) || (S.user.role === 'admin' ? 4 : 10);
+  const minPw = Number(S.user.password_min_length) || 4;
   const inner = `<div class="pagehead"><h1>Skift adgangskode</h1></div>
     <form id="pf" class="formcard" novalidate style="max-width:32rem">
       <p class="muted" style="margin-top:0">Den nye adgangskode gælder med det samme og bevares, når serveren genstarter.</p>
