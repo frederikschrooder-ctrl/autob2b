@@ -40,6 +40,13 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('popstate', render);
 const link = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="${cls}">${text}</a>`;
+function brandHome() {
+  if (!S.user) return '/';
+  return S.user.role === 'admin' ? '/dashboard' : '/shop';
+}
+function brandLink() {
+  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="#1c1917"/><path d="M8 21.5 16 9.5 24 21.5" fill="none" stroke="#f7f3ea" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M11.5 21.5h9" stroke="#c4a265" stroke-width="2" stroke-linecap="round"/></svg><span class="wordmark">Højbogaard <span>B2B</span></span></a>`;
+}
 const btnLink = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="btn ${cls}">${text}</a>`;
 const showErr = (el, e) => { el.innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
 async function logout() { try { await api('POST', '/api/auth/logout', {}); } catch {} S.user = null; go('/login'); }
@@ -47,7 +54,7 @@ async function logout() { try { await api('POST', '/api/auth/logout', {}); } cat
 // ---------- landing ----------
 function landing() {
   $app.innerHTML = `
-  <div class="topbar"><div class="logo">Auto<span>B2B</span></div><div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
+  <div class="topbar">${brandLink()}<div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
   <section class="hero">
     <div class="badge">Lukket B2B Platform — Kun for Forhandlere</div>
     <h1>Premium Importerede Biler Fra Tyskland til Danmark</h1>
@@ -67,14 +74,14 @@ function landing() {
       <div class="step card"><div class="num">4</div><h3>Modtag Bilerne</h3><p>Vi sørger for levering af bilerne til dig i Danmark.</p></div>
     </div></section>
   <section class="cta"><h2>Klar til at komme i gang?</h2>${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}</section>
-  <div class="footer">© AutoB2B – Lukket B2B platform for bilforhandlere</div>`;
+  <div class="footer">© Højbogaard B2B – Lukket B2B platform for bilforhandlere</div>`;
 }
 
 // ---------- auth ----------
 function authPage(kind) {
   const isLogin = kind === 'login';
   $app.innerHTML = `<div class="authwrap"><form class="authbox" id="f" novalidate>
-    <div class="logo" style="margin-bottom:1rem">Auto<span>B2B</span></div>
+    ${brandLink()}
     <h1>${isLogin ? 'Log ind' : 'Ansøg om Forhandlerkonto'}</h1>
     <p class="muted">${isLogin ? 'Administratorer og forhandlere bruger samme login.' : 'Udfyld oplysningerne – vi godkender din ansøgning manuelt.'}</p>
     <div id="msg"></div>
@@ -106,7 +113,7 @@ function authPage(kind) {
 // ---------- admin layout ----------
 function adminShell(active, inner) {
   const nav = [['/dashboard', 'Oversigt'], ['/dashboard/vehicles', 'Biler'], ['/dashboard/packages', 'Partier'], ['/dashboard/orders', 'Ordrer'], ['/dashboard/dealers', 'Forhandlere'], ['/account/password', 'Adgangskode']];
-  $app.innerHTML = `<div class="layout"><aside class="side" id="side"><div class="sidehead"><div class="brand">AutoB2B – Admin Panel</div><button type="button" class="navtoggle" id="navtoggle" aria-expanded="false" aria-controls="sidenav">Menu</button></div>
+  $app.innerHTML = `<div class="layout"><aside class="side" id="side"><div class="sidehead">${brandLink()}<button type="button" class="navtoggle" id="navtoggle" aria-expanded="false" aria-controls="sidenav">Menu</button></div>
     <nav id="sidenav" aria-label="Administration">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
     <div class="user"><div class="n">${esc(S.user.name)}</div><div class="e">${esc(S.user.email)}</div><button type="button" id="lo">Log Ud</button></div></aside>
     <main class="main">${inner}</main></div>`;
@@ -530,13 +537,13 @@ async function dealersPage() {
 // ---------- dealer shop ----------
 function shopShell(active, inner, unread = 0) {
   const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer']];
-  $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><nav aria-label="Forhandler">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
+  $app.innerHTML = `<header class="shopbar">${brandLink()}<nav aria-label="Forhandler">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
    <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
   document.getElementById('lo').onclick = logout;
 }
 function holdPage() {
   const rej = S.user.status === 'rejected';
-  $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header>
+  $app.innerHTML = `<header class="shopbar">${brandLink()}<div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header>
   <main class="shopmain"><div class="authbox" style="margin:3rem auto"><h1>${rej ? 'Din ansøgning er afvist' : 'Din ansøgning afventer godkendelse'}</h1>
   <p>${rej ? 'Din forhandlerkonto er desværre ikke blevet godkendt, og du har derfor ikke adgang til kataloget.' : 'Vi gennemgår din ansøgning. Du får adgang til biler og partier, så snart din konto er godkendt.'}</p>
   ${rej ? '' : '<p class="muted">Opdater siden for at se, om kontoen er blevet godkendt.</p>'}
@@ -639,7 +646,7 @@ function passwordPage() {
   if (S.user.role === 'admin') adminShell('/account/password', inner);
   else if (S.user.role === 'dealer' && S.user.status === 'approved') shopShell('/shop', inner);
   else {
-    $app.innerHTML = `<header class="shopbar"><div class="logo">Auto<span>B2B</span></div><div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+    $app.innerHTML = `<header class="shopbar">${brandLink()}<div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
     document.getElementById('lo').onclick = logout;
   }
   document.getElementById('pf').addEventListener('submit', async (e) => {
