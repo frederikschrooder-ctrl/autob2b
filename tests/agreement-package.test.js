@@ -130,5 +130,6 @@ test('printable agreement names the package adjustment', () => {
   assert.match(src, /function sellerBlock/);
   assert.match(src, /sellerBlock\(a\.seller\)/);
   assert.doesNotMatch(src, /\$\{a\.seller\.name\}/);
-  assert.doesNotMatch(src, /Højbogaard/);
+  const agreementSrc = src.slice(src.indexOf('async function agreementPage'), src.indexOf('function passwordPage'));
+  assert.doesNotMatch(agreementSrc, /Højbogaard/);
 });

@@ -45,7 +45,7 @@ function brandHome() {
   return S.user.role === 'admin' ? '/dashboard' : '/shop';
 }
 function brandLink() {
-  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 196 40" role="img" aria-label="Højbygård B2B"><title>Højbygård B2B</title><rect width="196" height="40" rx="8" fill="#5a5f66"/><path class="brand-car" d="M44 27c18-1 28-12 52-14 26-2 52 0 72 6 10 3 18 5 22 6" fill="none" stroke="#d5d8dc" stroke-width="1.15" stroke-linecap="round"/><rect x="6" y="5" width="30" height="30" rx="7" fill="none" stroke="#6abf4b" stroke-width="1.8"/><circle cx="21" cy="20" r="8" fill="#6abf4b"/><text x="21" y="24.2" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">H</text><text x="42" y="26" fill="#6abf4b" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700">øjbygård B2B</text></svg></a>`;
+  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 210 40" role="img" aria-label="Højbogaard B2B"><title>Højbogaard B2B</title><rect width="210" height="40" rx="8" fill="#5a5f66"/><path class="brand-car" d="M44 27c20-1 32-12 58-14 28-2 56 0 78 6 12 3 20 5 24 6" fill="none" stroke="#d5d8dc" stroke-width="1.15" stroke-linecap="round"/><rect x="6" y="5" width="30" height="30" rx="7" fill="none" stroke="#6abf4b" stroke-width="1.8"/><circle cx="21" cy="20" r="8" fill="#6abf4b"/><text x="21" y="24.2" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">H</text><text x="42" y="26" fill="#6abf4b" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700">øjbogaard B2B</text></svg></a>`;
 }
 const btnLink = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="btn ${cls}">${text}</a>`;
 const showErr = (el, e) => { el.innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
@@ -74,7 +74,7 @@ function landing() {
       <div class="step card"><div class="num">4</div><h3>Modtag Bilerne</h3><p>Vi sørger for levering af bilerne til dig i Danmark.</p></div>
     </div></section>
   <section class="cta"><h2>Klar til at komme i gang?</h2>${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}</section>
-  <div class="footer">© Højbygård B2B – Lukket B2B platform for bilforhandlere</div>`;
+  <div class="footer">© Højbogaard B2B – Lukket B2B platform for bilforhandlere</div>`;
 }
 
 // ---------- auth ----------

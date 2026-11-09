@@ -5,11 +5,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-test('header brand links home and names Højbygård B2B', () => {
+test('header brand links home and names Højbogaard B2B', () => {
   const root = path.join(__dirname, '..');
   const src = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-  assert.match(html, /<title>Højbygård B2B – Lukket B2B Platform for Forhandlere<\/title>/);
+  assert.match(html, /<title>Højbogaard B2B – Lukket B2B Platform for Forhandlere<\/title>/);
   assert.equal(html.includes('AutoB2B'), false);
   const context = {
     document: { getElementById() { return { innerHTML: '', addEventListener() {} }; }, addEventListener() {} },
@@ -23,10 +23,10 @@ test('header brand links home and names Højbygård B2B', () => {
   vm.runInContext(src + '\nglobalThis.__brand = brandLink;\nglobalThis.__setUser = (u) => { S.user = u; };\n', context);
   const loggedOut = context.__brand();
   assert.match(loggedOut, /<a data-link class="brandlink" href="\/">/);
-  assert.match(loggedOut, /aria-label="Højbygård B2B"/);
-  assert.match(loggedOut, />øjbygård B2B</);
+  assert.match(loggedOut, /aria-label="Højbogaard B2B"/);
+  assert.match(loggedOut, />øjbogaard B2B</);
   assert.match(loggedOut, />H</);
-  assert.equal(loggedOut.includes('Højbogaard'), false);
+  assert.equal(loggedOut.includes('Højbygård'), false);
   assert.equal(loggedOut.includes('AutoB2B'), false);
   context.__setUser({ role: 'admin' });
   assert.match(context.__brand(), /href="\/dashboard"/);
