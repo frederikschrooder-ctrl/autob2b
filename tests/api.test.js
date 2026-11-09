@@ -46,7 +46,7 @@ test.after(() => { server.close(); ctx.close(); });
 async function adminClient() { const c = new Client(); const r = await c.login('admin@example.test', ADMIN_PW); assert.equal(r.status, 200); return c; }
 async function registerDealer(admin, n, approve = true) {
   const email = `dealer${n}@example.test`; const c = new Client();
-  const r = await c.post('/api/auth/register', { company_name: 'Forhandler ' + n, cvr: String(10000000 + n), city: 'Aarhus', phone: '12345678', email, password: 'Dealer-pass-1234' });
+  const r = await c.post('/api/auth/register', { company_name: 'Forhandler ' + n, cvr: String(10000000 + n), city: 'Aarhus', email, password: 'Dealer-pass-1234' });
   assert.equal(r.status, 201);
   const row = ctx.db.prepare('SELECT * FROM users WHERE email=?').get(email);
   assert.equal(row.status, 'pending'); assert.equal(row.role, 'dealer');
@@ -277,7 +277,7 @@ test('non-admins (dealer, pending, anonymous) are blocked from EVERY admin endpo
 
 test('no public admin signup: role/status in register body are ignored; only admin can create admins', async () => {
   const c = new Client();
-  const r = await c.post('/api/auth/register', { company_name: 'Sneaky', cvr: '99999999', city: 'X', phone: '12345678', email: 'sneaky@example.test', password: 'Sneaky-pass-1234', role: 'admin', status: 'approved' });
+  const r = await c.post('/api/auth/register', { company_name: 'Sneaky', cvr: '99999999', city: 'X', email: 'sneaky@example.test', password: 'Sneaky-pass-1234', role: 'admin', status: 'approved' });
   assert.equal(r.status, 201);
   const u = ctx.db.prepare('SELECT role,status FROM users WHERE email=?').get('sneaky@example.test');
   assert.deepEqual({ ...u }, { role: 'dealer', status: 'pending' });
@@ -287,8 +287,8 @@ test('no public admin signup: role/status in register body are ignored; only adm
   assert.equal(ctx.db.prepare('SELECT role FROM users WHERE email=?').get('second@example.test').role, 'admin');
   assert.equal((await a.post('/api/admin/admins', { email: 'x@example.test', name: 'X', password: 'abc' })).status, 400);
   // registration validation + duplicates
-  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '123', city: 'X', phone: '12345678', email: 'a@example.test', password: 'Sneaky-pass-1234' })).status, 400);
-  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '12345678', city: 'X', phone: '12345678', email: 'sneaky@example.test', password: 'Sneaky-pass-1234' })).status, 409);
+  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '123', city: 'X', email: 'a@example.test', password: 'Sneaky-pass-1234' })).status, 400);
+  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '12345678', city: 'X', email: 'sneaky@example.test', password: 'Sneaky-pass-1234' })).status, 409);
 });
 
 test('CSRF guard: state-changing request without custom header is refused', async () => {

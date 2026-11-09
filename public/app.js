@@ -24,10 +24,6 @@ const L = {
   kind: { reserve: 'Reservation', buy: 'Køb' },
 };
 const pill = (map, k) => `<span class="pill ${esc(k)}">${esc(map[k] || k)}</span>`;
-function telLink(phone) {
-  if (!phone) return '';
-  return `<a href="tel:${esc(String(phone).replace(/[^\d+]/g, ''))}">${esc(phone)}</a>`;
-}
 
 async function api(method, url, body) {
   const opts = { method, headers: { 'x-requested-with': 'autob2b' }, credentials: 'same-origin' };
@@ -90,8 +86,7 @@ function authPage(kind) {
     <p class="muted">${isLogin ? 'Administratorer og forhandlere bruger samme login.' : 'Udfyld oplysningerne – vi godkender din ansøgning manuelt.'}</p>
     <div id="msg"></div>
     ${isLogin ? '' : `<label>Firmanavn</label><input name="company_name" required autocomplete="organization">
-      <div class="grid2"><div><label>CVR-nummer</label><input name="cvr" required inputmode="numeric" maxlength="10"></div><div><label>By</label><input name="city" required autocomplete="address-level2"></div></div>
-      <label>Telefonnummer</label><input type="tel" name="phone" required autocomplete="tel" inputmode="tel" maxlength="32" placeholder="+45 12 34 56 78">`}
+      <div class="grid2"><div><label>CVR-nummer</label><input name="cvr" required inputmode="numeric" maxlength="10"></div><div><label>By</label><input name="city" required autocomplete="address-level2"></div></div>`}
     <label>E-mail</label><input type="email" name="email" required autocomplete="email">
     <label>Adgangskode</label><input type="password" name="password" required autocomplete="${isLogin ? 'current-password' : 'new-password'}" ${isLogin ? '' : 'minlength="10"'}>
     ${isLogin ? '' : '<div class="muted" style="font-size:.8rem">Mindst 10 tegn.</div>'}
@@ -104,7 +99,6 @@ function authPage(kind) {
     const d = Object.fromEntries(new FormData(f)); btn.disabled = true;
     try {
       if (!isLogin && String(d.password || '').length < 10) throw new Error('Adgangskoden skal være mindst 10 tegn');
-      if (!isLogin && String(d.phone || '').replace(/\D/g, '').length < 8) throw new Error('Telefonnummer skal være 8-15 cifre');
       if (isLogin) {
         const r = await api('POST', '/api/auth/login', d); S.user = r.user;
         go(r.user.role === 'admin' ? '/dashboard' : '/shop');
@@ -427,7 +421,7 @@ function confirmArchive(id) {
 function recentOrders(orders) {
   if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
   return `<div class="recent-orders">${orders.map((o) => `<article class="recent-order">
-    <div class="recent-main"><b>#${o.id}</b> ${esc(o.item_label)}<div class="muted">${esc(o.dealer?.company_name || '—')}${o.dealer?.phone ? ` · ${telLink(o.dealer.phone)}` : ''} · ${esc(L.kind[o.kind] || o.kind)} · ${dkk(o.price)} · ${dt(o.created_at)}</div></div>
+    <div class="recent-main"><b>#${o.id}</b> ${esc(o.item_label)}<div class="muted">${esc(o.dealer?.company_name || '—')} · ${esc(L.kind[o.kind] || o.kind)} · ${dkk(o.price)} · ${dt(o.created_at)}</div></div>
     <div>${pill(L.ostatus, o.status)}</div>
     <div class="recent-actions">${btnLink('/dashboard/orders/' + o.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button></div>
   </article>`).join('')}</div>`;
@@ -446,7 +440,7 @@ function ordersTable(orders, mode) {
     return status + edit + `<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button>`;
   };
   return `<div class="tablewrap"><table><thead><tr><th>#</th><th>Forhandler</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Udløber</th>${actions ? '<th>Handlinger</th>' : ''}</tr></thead><tbody>
-  ${orders.map((o) => `<tr>${cell('#', o.id)}${cell('Forhandler', `${esc(o.dealer?.company_name || '—')}${o.dealer?.phone ? `<div>${telLink(o.dealer.phone)}</div>` : ''}`)}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Udløber', o.status === 'pending' && !o.archived_at ? dt(o.expires_at) : '—')}
+  ${orders.map((o) => `<tr>${cell('#', o.id)}${cell('Forhandler', esc(o.dealer?.company_name || '—'))}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Udløber', o.status === 'pending' && !o.archived_at ? dt(o.expires_at) : '—')}
   ${actions ? cell('Handlinger', buttons(o), 'act') : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 async function ordersPage() {
@@ -493,7 +487,7 @@ async function orderEdit(id) {
   adminShell('/dashboard/orders', `<div class="pagehead"><h1>Ordre #${o.id}</h1>${btnLink('/dashboard/orders', 'Tilbage', 'outline')}</div><div id="msg"></div>
     <div class="notice">Slet på ordrelisterne arkiverer ordren. Den forsvinder fra oversigten og tællingerne. Købsaftalen og sælgeren i aftalen ændres ikke. En afventende reservation frigives. En bekræftet eller gennemført handel sætter ikke bilen til salg igen. Arkivet kan gendanne ordren.</div>
     <div class="formcard"><h2>Ordre</h2>
-      <p>Forhandler: <b>${esc(o.dealer?.company_name || '—')}</b>${o.dealer?.phone ? ` · ${telLink(o.dealer.phone)}` : ''} · ${esc(L.kind[o.kind])} · ${pill(L.ostatus, o.status)}${locked ? ' · Arkiveret' : ''}</p>
+      <p>Forhandler: <b>${esc(o.dealer?.company_name || '—')}</b> · ${esc(L.kind[o.kind])} · ${pill(L.ostatus, o.status)}${locked ? ' · Arkiveret' : ''}</p>
       <p>${ag ? `Aftale ${esc(ag.number)} · sælger ${esc(ag.seller && ag.seller.name)} · aftalt pris ${dkk(ag.price_excl_vat)}. ${btnLink('/agreement/' + o.id, 'Åbn aftale', 'small outline')}` : 'Ingen købsaftale på denne ordre.'}</p>
       <p class="muted">Aftalens tekst, sælger og aftalte pris kan ikke overskrives her.</p>
     </div>
@@ -543,7 +537,7 @@ async function orderEdit(id) {
 async function dealersPage() {
   adminShell('/dashboard/dealers', '<h1>Indlæser…</h1>');
   const { dealers } = await api('GET', '/api/admin/dealers');
-  const sect = (title, st, rows, acts) => `<h2>${title} (${rows.length})</h2>${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>Telefon</th><th>E-mail</th><th>Ansøgt</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${rows.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('Telefon', d.phone ? telLink(d.phone) : '—')}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
+  const sect = (title, st, rows, acts) => `<h2>${title} (${rows.length})</h2>${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>E-mail</th><th>Ansøgt</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${rows.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
   const by = (s) => dealers.filter((d) => d.status === s);
   adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1></div><div id="msg"></div>
     ${sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
@@ -566,7 +560,7 @@ async function dealersPage() {
 
 // ---------- dealer shop ----------
 function shopShell(active, inner, unread = 0) {
-  const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer'], ['/account/profile', 'Profil']];
+  const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer']];
   $app.innerHTML = `<header class="shopbar">${brandLink()}<nav aria-label="Forhandler">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
    <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
   document.getElementById('lo').onclick = logout;
@@ -577,7 +571,7 @@ function holdPage() {
   <main class="shopmain"><div class="authbox" style="margin:3rem auto"><h1>${rej ? 'Din ansøgning er afvist' : 'Din ansøgning afventer godkendelse'}</h1>
   <p>${rej ? 'Din forhandlerkonto er desværre ikke blevet godkendt, og du har derfor ikke adgang til kataloget.' : 'Vi gennemgår din ansøgning. Du får adgang til biler og partier, så snart din konto er godkendt.'}</p>
   ${rej ? '' : '<p class="muted">Opdater siden for at se, om kontoen er blevet godkendt.</p>'}
-  <p>${btnLink('/account/profile', 'Profil', 'outline')} ${btnLink('/account/password', 'Skift adgangskode', 'outline')}</p></div></main>`;
+  <p>${btnLink('/account/password', 'Skift adgangskode', 'outline')}</p></div></main>`;
   document.getElementById('lo').onclick = logout;
 }
 const carImg = (v) => (v.images && v.images[0] && !v.images[0].endsWith('.heic') ? `<img src="${esc(v.images[0])}" alt="">` : '🚗');
@@ -655,7 +649,7 @@ async function agreementPage(id) {
   wrapper(`<p class="noprint">${link(S.user.role === 'admin' ? '/dashboard/orders' : '/shop/orders', '← Tilbage til ordrer')} · <a href="#" id="pr">Print</a></p>
   <div class="agreement"><h1>Købsaftale</h1><p class="muted">Aftalenr. <b>${esc(a.number)}</b> · ${dt(a.date)}</p>
   <h3>Sælger</h3><p>${sellerBlock(a.seller)}</p>
-  <h3>Køber</h3><p>${esc(a.buyer.company)}<br>CVR: ${esc(a.buyer.cvr)} · ${esc(a.buyer.city)}<br>Kontakt: ${esc(a.buyer.contact)} (${esc(a.buyer.email)})${a.buyer.phone ? `<br>Telefon: ${telLink(a.buyer.phone)}` : ''}</p>
+  <h3>Køber</h3><p>${esc(a.buyer.company)}<br>CVR: ${esc(a.buyer.cvr)} · ${esc(a.buyer.city)}<br>Kontakt: ${esc(a.buyer.contact)} (${esc(a.buyer.email)})</p>
   <h3>Genstand: ${esc(a.subject)}</h3><div class="tablewrap"><table><thead><tr><th>Køretøj</th><th>VIN</th><th style="text-align:right">${a.package_breakdown ? 'Katalogpris' : 'Pris'}</th></tr></thead><tbody>${a.items.map((i) => `<tr>${cell('Køretøj', esc(i.description))}${cell('VIN', esc(i.vin))}${cell(a.package_breakdown ? 'Katalogpris' : 'Pris', i.price ? dkk(i.price) : '')}</tr>`).join('')}</tbody></table></div>
   <table class="spec" style="margin-top:1rem">${a.package_breakdown ? `<tr><td>Sum af katalogpriser</td><td style="text-align:right">${dkk(a.package_breakdown.catalog_sum)}</td></tr><tr><td>${a.package_breakdown.adjustment < 0 ? 'Prisjustering (rabat)' : a.package_breakdown.adjustment > 0 ? 'Prisjustering (tillæg)' : 'Prisjustering'}</td><td style="text-align:right">${dkk(a.package_breakdown.adjustment)}</td></tr><tr><td>Aftalt pakkepris ekskl. moms</td><td style="text-align:right">${dkk(a.price_excl_vat)}</td></tr>` : `<tr><td>Pris ekskl. moms</td><td style="text-align:right">${dkk(a.price_excl_vat)}</td></tr>`}<tr><td>Moms (${a.vat_rate * 100}%)</td><td style="text-align:right">${dkk(a.vat)}</td></tr><tr><td><b>I alt inkl. moms</b></td><td style="text-align:right"><b>${dkk(a.total_incl_vat)}</b></td></tr></table>
   <h3 style="margin-top:1.5rem">Vilkår</h3><ol>${a.terms.map((t) => `<li>${esc(t)}</li>`).join('')}</ol></div>`);
@@ -733,7 +727,6 @@ async function dealerEdit(id) {
   adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Rediger forhandler</h1>${btnLink('/dashboard/dealers', 'Tilbage', 'outline')}</div><div id="msg"></div>
     <form id="f" class="formcard" novalidate>
       <p class="muted">Status ændres med Godkend og Afvis på listen. Adgangskode og rolle kan ikke ændres her.</p>
-      <p>Telefon: ${d.phone ? telLink(d.phone) : '—'}</p>
       <label>Firmanavn</label><input name="company_name" required maxlength="120" value="${esc(d.company_name || '')}">
       <label>CVR</label><input name="cvr" required maxlength="20" value="${esc(d.cvr || '')}">
       <label>By</label><input name="city" required maxlength="80" value="${esc(d.city || '')}">
@@ -748,31 +741,6 @@ async function dealerEdit(id) {
   });
 }
 
-async function profilePage() {
-  if (!S.user || S.user.role !== 'dealer') return go(S.user && S.user.role === 'admin' ? '/dashboard' : '/login', true);
-  const inner = `<div class="pagehead"><h1>Profil</h1></div><div id="msg"></div>
-    <form id="pf" class="formcard" novalidate style="max-width:32rem">
-      <p class="muted" style="margin-top:0">${esc(S.user.company_name || S.user.name)} · ${esc(S.user.email)}</p>
-      <label>Telefonnummer</label><input type="tel" name="phone" required autocomplete="tel" inputmode="tel" maxlength="32" value="${esc(S.user.phone || '')}">
-      <button class="btn" type="submit">Gem telefonnummer</button>
-    </form>`;
-  if (S.user.status === 'approved') shopShell('/account/profile', inner);
-  else {
-    $app.innerHTML = `<header class="shopbar">${brandLink()}<div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
-    document.getElementById('lo').onclick = logout;
-  }
-  document.getElementById('pf').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const phone = new FormData(e.target).get('phone');
-    if (String(phone || '').replace(/\D/g, '').length < 8) return showErr(sel('#msg'), new Error('Telefonnummer skal være 8-15 cifre'));
-    try {
-      const r = await api('PUT', '/api/shop/profile', { phone });
-      S.user = r.user;
-      sel('#msg').innerHTML = '<div class="ok">Telefonnummeret er gemt.</div>';
-    } catch (err) { showErr(sel('#msg'), err); }
-  });
-}
-
 // ---------- router ----------
 async function render() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
@@ -784,7 +752,6 @@ async function render() {
     if (path === '/login' || path === '/register') { if (S.user) return go(S.user.role === 'admin' ? '/dashboard' : '/shop', true); return authPage(path.slice(1)); }
     if (!S.user) return go('/login', true);
     if (path === '/account/password') return passwordPage();
-    if (path === '/account/profile') return profilePage();
     if ((m = path.match(/^\/agreement\/(\d+)$/))) return agreementPage(m[1]);
     if (path.startsWith('/dashboard')) {
       if (S.user.role !== 'admin') return go('/shop', true);
