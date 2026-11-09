@@ -192,15 +192,34 @@ async function vehicleForm(id) {
      <div><label>Gearkasse</label><select name="transmission">${opt(L.gear, v.transmission, 'Vælg…')}</select></div>
      <div><label>Farve</label><input name="color" value="${esc(v.color || '')}"></div>
      <div><label>Engrospris (DKK, ekskl. moms) *</label><input type="number" min="1" name="price" required value="${v.price ?? ''}"></div></div></div>
-   <div class="formcard"><h2>Billeder</h2><input type="file" id="files" multiple accept=".jpg,.jpeg,.png,.heic,.webp,image/jpeg,image/png,image/webp,image/heic"><div class="muted" style="font-size:.8rem;margin-top:.3rem">JPG, PNG, HEIC eller WebP. Du kan vælge flere filer.</div><div class="previews" id="pv"></div></div>
+   <div class="formcard"><h2>Billeder</h2><p class="muted" style="margin-top:0">Billede 1 er hovedbilledet. Nye billeder lægges sidst. Rækkefølgen gemmes først, når du trykker Gem bil.</p><input type="file" id="files" multiple accept=".jpg,.jpeg,.png,.heic,.webp,image/jpeg,image/png,image/webp,image/heic"><div class="previews" id="pv"></div></div>
    <div class="formcard"><h2>Dokumenter</h2><label>Tilstandsrapport (URL)</label><input type="url" name="condition_report_url" placeholder="https://…" value="${esc(v.condition_report_url || '')}"></div>
    <button class="btn" type="submit">Gem Bil</button> ${btnLink('/dashboard/vehicles', 'Annuller', 'outline')}
   </form>`);
   const drawPv = () => {
-    sel('#pv').innerHTML = images.map((u, i) => `<div class="pv">${u.endsWith('.heic') ? `<div class="heic">HEIC</div>` : `<img src="${esc(u)}" alt="">`}<button type="button" data-rm="${i}" title="Fjern">×</button></div>`).join('');
+    sel('#pv').innerHTML = images.length ? images.map((u, i) => `<div class="pv">
+      <div class="pv-pos">${i === 0 ? '<span class="pill">Hovedbillede</span>' : ''}<span class="muted">#${i + 1}</span></div>
+      ${u.endsWith('.heic') ? '<div class="heic">HEIC</div>' : `<img src="${esc(u)}" alt="">`}
+      <div class="pv-actions">
+        <button type="button" class="btn small outline" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Flyt billede ${i + 1} op">Op</button>
+        <button type="button" class="btn small outline" data-down="${i}" ${i === images.length - 1 ? 'disabled' : ''} aria-label="Flyt billede ${i + 1} ned">Ned</button>
+        <button type="button" class="btn small danger" data-rm="${i}" aria-label="Fjern billede ${i + 1}">Fjern</button>
+      </div>
+    </div>`).join('') : '<p class="muted">Ingen billeder endnu.</p>';
   };
   drawPv();
-  sel('#pv').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) { images.splice(+b.dataset.rm, 1); drawPv(); } });
+  sel('#pv').addEventListener('click', (e) => {
+    const up = e.target.closest('[data-up]');
+    const down = e.target.closest('[data-down]');
+    const rm = e.target.closest('[data-rm]');
+    if (up && !up.disabled) {
+      const i = +up.dataset.up;
+      if (i > 0) { const moved = images.splice(i, 1)[0]; images.splice(i - 1, 0, moved); drawPv(); }
+    } else if (down && !down.disabled) {
+      const i = +down.dataset.down;
+      if (i < images.length - 1) { const moved = images.splice(i, 1)[0]; images.splice(i + 1, 0, moved); drawPv(); }
+    } else if (rm) { images.splice(+rm.dataset.rm, 1); drawPv(); }
+  });
   sel('#files').addEventListener('change', async (e) => {
     for (const file of e.target.files) {
       try {

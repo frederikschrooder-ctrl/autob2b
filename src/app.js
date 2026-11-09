@@ -69,7 +69,35 @@ function createApp(opts = {}) {
   const cookieBase = () => ({ httpOnly: true, sameSite: 'lax', secure: !!opts.cookieSecure, path: '/' });
 
   // ---------- helpers on data ----------
-  const vehicleOut = (v) => v && ({ ...v, images: JSON.parse(v.images || '[]') });
+  const imageRows = (vehicleId) => db.prepare('SELECT id, url, position FROM vehicle_images WHERE vehicle_id=? ORDER BY position, id').all(vehicleId);
+  const vehicleOut = (v) => {
+    if (!v) return v;
+    const rows = imageRows(v.id);
+    const images = rows.length ? rows.map((r) => r.url) : (() => { try { const p = JSON.parse(v.images || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } })();
+    return { ...v, images };
+  };
+  const withImageIds = (v) => v && ({ ...v, image_ids: imageRows(v.id).map((r) => r.id) });
+  function syncVehicleImages(vehicleId, urls) {
+    const existing = db.prepare('SELECT id, url FROM vehicle_images WHERE vehicle_id=? ORDER BY position, id').all(vehicleId);
+    const pools = new Map();
+    for (const row of existing) {
+      if (!pools.has(row.url)) pools.set(row.url, []);
+      pools.get(row.url).push(row.id);
+    }
+    const keep = [];
+    urls.forEach((url, index) => {
+      const pool = pools.get(url);
+      const existingId = pool && pool.length ? pool.shift() : null;
+      if (existingId) {
+        db.prepare('UPDATE vehicle_images SET position=? WHERE id=?').run(index + 1, existingId);
+        keep.push(existingId);
+      } else {
+        keep.push(Number(db.prepare('INSERT INTO vehicle_images (vehicle_id, url, position) VALUES (?,?,?)').run(vehicleId, url, index + 1).lastInsertRowid));
+      }
+    });
+    const kept = new Set(keep);
+    for (const row of existing) if (!kept.has(row.id)) db.prepare('DELETE FROM vehicle_images WHERE id=?').run(row.id);
+  }
   const vehicleLabel = (v) => [v.make, v.model, v.variant].filter(Boolean).join(' ');
   const getVehicle = (id) => vehicleOut(db.prepare('SELECT * FROM vehicles WHERE id=?').get(id));
   const pkgCars = (id) => db.prepare('SELECT v.* FROM package_vehicles pv JOIN vehicles v ON v.id=pv.vehicle_id WHERE pv.package_id=? ORDER BY v.id').all(id).map(vehicleOut);
@@ -373,14 +401,37 @@ function createApp(opts = {}) {
   }));
   app.get('/api/admin/vehicles/:id', requireAdmin, wrap((req, res) => {
     const v = getVehicle(idParam(req)); if (!v) throw new HttpError(404, 'Bil ikke fundet');
-    res.json({ vehicle: v });
+    res.json({ vehicle: withImageIds(v) });
+  }));
+  app.put('/api/admin/vehicles/:id/images', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    if (!getVehicle(id)) throw new HttpError(404, 'Bil ikke fundet');
+    const ids = (req.body || {}).image_ids;
+    if (!Array.isArray(ids) || ids.some((n) => !Number.isInteger(n))) throw bad('Billedrækkefølgen er ugyldig');
+    const rows = imageRows(id);
+    if (ids.length !== rows.length || new Set(ids).size !== ids.length) throw bad('Billedrækkefølgen skal indeholde hvert billede præcis én gang');
+    const byId = new Map(rows.map((r) => [r.id, r.url]));
+    if (ids.some((imageId) => !byId.has(imageId))) throw bad('Billedrækkefølgen skal indeholde hvert billede præcis én gang');
+    const before = db.prepare('SELECT price, status FROM vehicles WHERE id=?').get(id);
+    tx(() => {
+      ids.forEach((imageId, index) => db.prepare('UPDATE vehicle_images SET position=? WHERE id=? AND vehicle_id=?').run(index + 1, imageId, id));
+      db.prepare('UPDATE vehicles SET images=? WHERE id=?').run(JSON.stringify(ids.map((imageId) => byId.get(imageId))), id);
+    });
+    const after = db.prepare('SELECT price, status FROM vehicles WHERE id=?').get(id);
+    if (after.price !== before.price || after.status !== before.status) throw new HttpError(500, 'Billedrækkefølgen må ikke ændre bilen');
+    res.json({ vehicle: withImageIds(getVehicle(id)) });
   }));
   app.post('/api/admin/vehicles', requireAdmin, wrap((req, res) => {
     const v = vehicleInput(req.body || {});
     if (db.prepare('SELECT 1 FROM vehicles WHERE vin=?').get(v.vin)) throw new HttpError(409, 'Der findes allerede en bil med dette VIN');
-    const r = db.prepare(`INSERT INTO vehicles (vin,make,model,variant,first_registration,mileage,fuel,transmission,color,price,images,condition_report_url,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'available', ?)`)
-      .run(v.vin, v.make, v.model, v.variant, v.first_registration, v.mileage, v.fuel, v.transmission, v.color, v.price, JSON.stringify(v.images), v.condition_report_url, new Date(now()).toISOString());
-    res.status(201).json({ vehicle: getVehicle(Number(r.lastInsertRowid)) });
+    const id = tx(() => {
+      const r = db.prepare(`INSERT INTO vehicles (vin,make,model,variant,first_registration,mileage,fuel,transmission,color,price,images,condition_report_url,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'available', ?)`)
+        .run(v.vin, v.make, v.model, v.variant, v.first_registration, v.mileage, v.fuel, v.transmission, v.color, v.price, JSON.stringify(v.images), v.condition_report_url, new Date(now()).toISOString());
+      const newId = Number(r.lastInsertRowid);
+      syncVehicleImages(newId, v.images);
+      return newId;
+    });
+    res.status(201).json({ vehicle: withImageIds(getVehicle(id)) });
   }));
   app.put('/api/admin/vehicles/:id', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
@@ -395,9 +446,12 @@ function createApp(opts = {}) {
       if (lock && req.body.status !== 'sold') throw new HttpError(409, 'Bilen indgår i et køb og kan ikke sættes til salg igen');
       status = req.body.status;
     }
-    db.prepare(`UPDATE vehicles SET vin=?,make=?,model=?,variant=?,first_registration=?,mileage=?,fuel=?,transmission=?,color=?,price=?,images=?,condition_report_url=?,status=? WHERE id=?`)
-      .run(v.vin, v.make, v.model, v.variant, v.first_registration, v.mileage, v.fuel, v.transmission, v.color, v.price, JSON.stringify(v.images), v.condition_report_url, status, id);
-    res.json({ vehicle: getVehicle(id) });
+    tx(() => {
+      db.prepare(`UPDATE vehicles SET vin=?,make=?,model=?,variant=?,first_registration=?,mileage=?,fuel=?,transmission=?,color=?,price=?,images=?,condition_report_url=?,status=? WHERE id=?`)
+        .run(v.vin, v.make, v.model, v.variant, v.first_registration, v.mileage, v.fuel, v.transmission, v.color, v.price, JSON.stringify(v.images), v.condition_report_url, status, id);
+      syncVehicleImages(id, v.images);
+    });
+    res.json({ vehicle: withImageIds(getVehicle(id)) });
   }));
   app.delete('/api/admin/vehicles/:id', requireAdmin, wrap((req, res) => {
     const id = idParam(req);

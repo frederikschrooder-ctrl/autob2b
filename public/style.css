@@ -111,9 +111,13 @@ td.act{min-width:150px}td.act>*{margin:0 .3rem .3rem 0}
   .shopbar{padding:.45rem .75rem;gap:.25rem .6rem}
   .shopmain{padding:1rem .75rem}
 }
-.previews{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.6rem}
-.previews .pv{position:relative}.previews img,.previews .heic{width:96px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--b);background:var(--g50);display:flex;align-items:center;justify-content:center;font-size:.75rem}
-.previews button{position:absolute;top:-8px;right:-8px;border:0;background:var(--red);color:#fff;border-radius:50%;width:44px;height:44px;cursor:pointer}
+.previews{display:flex;flex-direction:column;gap:.7rem;margin-top:.6rem}
+.previews .pv{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;background:#fff;border:1px solid var(--b);border-radius:10px;padding:.6rem}
+.previews img,.previews .heic{width:96px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--b);background:var(--g50);display:flex;align-items:center;justify-content:center;font-size:.75rem}
+.pv-pos{display:flex;flex-direction:column;gap:.2rem;min-width:6.5rem}
+.pv-actions{display:flex;flex-wrap:wrap;gap:.4rem}
+.pv-actions .btn{min-height:44px}
+@media(max-width:700px){.pv-actions{width:100%}.pv-actions .btn{flex:1 1 30%}}
 .pick{max-height:420px;overflow:auto;border:1px solid var(--b);border-radius:10px;padding:.35rem;background:#fff}
 .pick-hint{font-size:.82rem;margin:.15rem 0 .55rem}
 .pick-toolbar{display:flex;gap:.55rem;flex-wrap:wrap;margin:.35rem 0 .55rem}

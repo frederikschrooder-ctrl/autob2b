@@ -91,6 +91,20 @@ function openDb(file) {
   addOrderCol('archived_at', 'ALTER TABLE orders ADD COLUMN archived_at TEXT');
   addOrderCol('archived_by', 'ALTER TABLE orders ADD COLUMN archived_by INTEGER');
   addOrderCol('archive_note', 'ALTER TABLE orders ADD COLUMN archive_note TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS vehicle_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    position INTEGER NOT NULL
+  )`);
+  const pending = db.prepare(`SELECT v.id, v.images FROM vehicles v WHERE NOT EXISTS (SELECT 1 FROM vehicle_images i WHERE i.vehicle_id=v.id)`).all();
+  const insertImage = db.prepare('INSERT INTO vehicle_images (vehicle_id, url, position) VALUES (?,?,?)');
+  for (const vehicle of pending) {
+    let urls = [];
+    try { urls = JSON.parse(vehicle.images || '[]'); } catch { urls = []; }
+    if (!Array.isArray(urls)) continue;
+    urls.forEach((url, index) => { if (typeof url === 'string') insertImage.run(vehicle.id, url, index + 1); });
+  }
   return db;
 }
 module.exports = { openDb };
