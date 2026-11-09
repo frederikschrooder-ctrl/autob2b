@@ -669,7 +669,7 @@ function passwordPage() {
     <form id="pf" class="formcard" novalidate style="max-width:32rem">
       <p class="muted" style="margin-top:0">Den nye adgangskode gælder med det samme og bevares, når serveren genstarter.</p>
       <label>Nuværende adgangskode</label><input type="password" name="current_password" required autocomplete="current-password">
-      <label>Ny adgangskode (min. ${minPw} tegn)</label><input type="password" name="new_password" required minlength="${minPw}" autocomplete="new-password">
+      <label>Ny adgangskode</label><div class="muted" style="font-size:.8rem">Mindst ${minPw} tegn.</div><input type="password" name="new_password" required minlength="${minPw}" autocomplete="new-password">
       <button class="btn" type="submit">Gem ny adgangskode</button>
       <div id="pm"></div>
     </form>`;

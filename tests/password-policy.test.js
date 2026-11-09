@@ -163,6 +163,37 @@ test('admins and dealers accept 4, reject 3, and an existing dealer can still lo
   } finally { live.server.close(); ctx.close(); }
 });
 
+test('dealer passwords accept 1234, abcd and !!!! and reject abc', async () => {
+  const ctx = appWith({ BOOTSTRAP_ADMIN_EMAIL: ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD: FOUR });
+  const live = await listen(ctx);
+  try {
+    const admin = await post(live.base, '/api/auth/login', { email: ADMIN_EMAIL, password: FOUR });
+    const samples = ['1234', 'abcd', '!!!!'];
+    for (let i = 0; i < samples.length; i++) {
+      const password = samples[i];
+      const email = `plain-${i}@example.test`;
+      const created = await post(live.base, '/api/auth/register', { company_name: 'P' + i, cvr: '4455667' + i, city: 'Aarhus', phone: '12345678', email, password });
+      assert.equal(created.status, 201, password);
+      const row = ctx.db.prepare('SELECT id FROM users WHERE email=?').get(email);
+      assert.equal((await post(live.base, `/api/admin/dealers/${row.id}/approve`, {}, admin.cookie)).status, 200);
+      assert.equal((await post(live.base, '/api/auth/login', { email, password })).status, 200, password);
+    }
+    const short = await post(live.base, '/api/auth/register', { company_name: 'Kort', cvr: '55667788', city: 'Aarhus', phone: '12345678', email: 'abc@example.test', password: 'abc' });
+    assert.equal(short.status, 400);
+    assert.match(short.json.error, /mindst 4/i);
+    let session = await post(live.base, '/api/auth/login', { email: 'plain-0@example.test', password: '1234' });
+    assert.equal((await post(live.base, '/api/auth/password', { current_password: '1234', new_password: 'abc' }, session.cookie)).status, 400);
+    session = await post(live.base, '/api/auth/password', { current_password: '1234', new_password: 'abcd' }, session.cookie);
+    assert.equal(session.status, 200);
+    assert.equal((await post(live.base, '/api/auth/login', { email: 'plain-0@example.test', password: 'abcd' })).status, 200);
+    session = await post(live.base, '/api/auth/password', { current_password: 'abcd', new_password: '!!!!' }, session.cookie);
+    assert.equal(session.status, 200);
+    assert.equal((await post(live.base, '/api/auth/login', { email: 'plain-0@example.test', password: '!!!!' })).status, 200);
+    const tooLong = 'x'.repeat(201);
+    assert.equal((await post(live.base, '/api/auth/password', { current_password: '!!!!', new_password: tooLong }, session.cookie)).status, 400);
+  } finally { live.server.close(); ctx.close(); }
+});
+
 test('registration and password change accept 4 and reject 3 in the client', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(src, /Mindst 4 tegn/);
@@ -174,7 +205,9 @@ test('registration and password change accept 4 and reject 3 in the client', () 
   const registerMessage = src.match(/throw new Error\('(Adgangskoden skal være mindst \d+ tegn)'\)/)[1];
   assert.equal(registerMin, 4);
   assert.equal(String('abc').length < registerMin ? registerMessage : null, 'Adgangskoden skal være mindst 4 tegn');
-  assert.equal(String('abcd').length < registerMin ? registerMessage : null, null);
+  for (const password of ['1234', 'abcd', '!!!!']) assert.equal(String(password).length < registerMin ? registerMessage : null, null);
+  assert.match(src, /Mindst \$\{minPw\} tegn/);
+  assert.doesNotMatch(src, /pattern="[^"]*password|password[^>]{0,80}pattern=/);
   const minExpr = src.match(/const minPw = ([^;]+);/)[1];
   const minPw = new Function('S', `return (${minExpr});`)({ user: { role: 'dealer', password_min_length: 4 } });
   assert.equal(minPw, 4);
