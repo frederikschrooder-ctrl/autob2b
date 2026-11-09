@@ -387,11 +387,20 @@ async function packagesPage() {
 function confirmArchive(id) {
   return confirm(`Arkivér ordre #${id}?\n\nOrdren fjernes fra oversigten og tællingerne. Købsaftalen og prisen i aftalen slettes ikke.\n\nEn afventende reservation frigives.\nEn bekræftet eller gennemført handel sætter ikke bilen til salg igen.\n\nDu kan gendanne ordren under Arkiv.`);
 }
+function recentOrders(orders) {
+  if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
+  return `<div class="recent-orders">${orders.map((o) => `<article class="recent-order">
+    <div class="recent-main"><b>#${o.id}</b> ${esc(o.item_label)}<div class="muted">${esc(o.dealer?.company_name || '—')} · ${esc(L.kind[o.kind] || o.kind)} · ${dkk(o.price)} · ${dt(o.created_at)}</div></div>
+    <div>${pill(L.ostatus, o.status)}</div>
+    <div class="recent-actions">${btnLink('/dashboard/orders/' + o.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button></div>
+  </article>`).join('')}</div>`;
+}
 function ordersTable(orders, mode) {
   const full = mode === true || mode === 'full';
   const recent = mode === 'recent';
   const archived = mode === 'archived';
   const actions = full || recent || archived;
+  if (recent) return recentOrders(orders);
   if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
   const buttons = (o) => {
     const edit = btnLink('/dashboard/orders/' + o.id + '/edit', 'Rediger', 'small outline');

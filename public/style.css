@@ -63,6 +63,10 @@ label{display:block;font-weight:600;font-size:.88rem;margin:.9rem 0 .25rem}
 .filters{display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:1rem}
 .filters input{flex:2;min-width:220px}.filters select{flex:1;min-width:170px;width:auto}
 .tablewrap{background:#fff;border:1px solid var(--b);border-radius:12px;overflow:auto}
+.recent-order{background:#fff;border:1px solid var(--b);border-radius:12px;padding:.85rem 1rem;margin:0 0 .75rem;display:flex;flex-wrap:wrap;gap:.65rem .8rem;align-items:center;justify-content:space-between}
+.recent-main{min-width:0;flex:1 1 220px}
+.recent-actions{display:flex;flex-wrap:wrap;gap:.5rem}
+.recent-actions .btn{min-height:44px}
 table{border-collapse:collapse;width:100%;font-size:.9rem}
 th{background:var(--g50);text-align:left;padding:.7rem .5rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;color:var(--g800);white-space:nowrap}
 td{padding:.6rem .5rem;border-top:1px solid var(--b);vertical-align:middle}
@@ -96,6 +100,8 @@ td.act{min-width:150px}td.act>*{margin:0 .3rem .3rem 0}
   .tablewrap td.act{flex-direction:column;align-items:stretch}
   .tablewrap td.act .celllabel{flex:none}
   .tablewrap td.act .btn{width:100%}
+  .recent-order{flex-direction:column;align-items:stretch}
+  .recent-actions .btn{flex:1 1 auto}
   .shopbar{padding:.45rem .75rem;gap:.25rem .6rem}
   .shopmain{padding:1rem .75rem}
 }
