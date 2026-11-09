@@ -16,7 +16,7 @@ function openDb(file) {
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('admin','dealer')),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
-    company_name TEXT, cvr TEXT, city TEXT,
+    company_name TEXT, cvr TEXT, city TEXT, phone TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -93,6 +93,8 @@ function openDb(file) {
   addOrderCol('archive_note', 'ALTER TABLE orders ADD COLUMN archive_note TEXT');
   const packageCols = db.prepare('PRAGMA table_info(packages)').all().map((c) => c.name);
   if (!packageCols.includes('archived_at')) db.exec('ALTER TABLE packages ADD COLUMN archived_at TEXT');
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!userCols.includes('phone')) db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
   db.exec(`CREATE TABLE IF NOT EXISTS vehicle_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
