@@ -45,7 +45,7 @@ function brandHome() {
   return S.user.role === 'admin' ? '/dashboard' : '/shop';
 }
 function brandLink() {
-  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="#1c1917"/><path d="M8 21.5 16 9.5 24 21.5" fill="none" stroke="#f7f3ea" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M11.5 21.5h9" stroke="#c4a265" stroke-width="2" stroke-linecap="round"/></svg><span class="wordmark">Højbogaard <span>B2B</span></span></a>`;
+  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="#1c1917"/><path d="M8 21.5 16 9.5 24 21.5" fill="none" stroke="#f7f3ea" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M11.5 21.5h9" stroke="#c4a265" stroke-width="2" stroke-linecap="round"/></svg><span class="wordmark">Højbygård <span>B2B</span></span></a>`;
 }
 const btnLink = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="btn ${cls}">${text}</a>`;
 const showErr = (el, e) => { el.innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
@@ -74,7 +74,7 @@ function landing() {
       <div class="step card"><div class="num">4</div><h3>Modtag Bilerne</h3><p>Vi sørger for levering af bilerne til dig i Danmark.</p></div>
     </div></section>
   <section class="cta"><h2>Klar til at komme i gang?</h2>${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}</section>
-  <div class="footer">© Højbogaard B2B – Lukket B2B platform for bilforhandlere</div>`;
+  <div class="footer">© Højbygård B2B – Lukket B2B platform for bilforhandlere</div>`;
 }
 
 // ---------- auth ----------
