@@ -134,12 +134,12 @@ test('every admin can use 4 or more; dealers stay at 10', async () => {
     const secondOk = await post(live.base, '/api/auth/password', { current_password: FOUR, new_password: LONGER }, second.cookie);
     assert.equal(secondOk.status, 200);
 
-    const dealerShort = await post(live.base, '/api/auth/register', { company_name: 'Kort', cvr: '22334455', city: 'Aarhus', email: 'dealer-short@example.test', password: FOUR });
+    const dealerShort = await post(live.base, '/api/auth/register', { company_name: 'Kort', cvr: '22334455', city: 'Aarhus', phone: '12345678', email: 'dealer-short@example.test', password: FOUR });
     assert.equal(dealerShort.status, 400);
     assert.match(dealerShort.json.error, /10/);
-    const dealerNine = await post(live.base, '/api/auth/register', { company_name: 'Kort', cvr: '22334455', city: 'Aarhus', email: 'dealer-nine@example.test', password: DEALER_SHORT });
+    const dealerNine = await post(live.base, '/api/auth/register', { company_name: 'Kort', cvr: '22334455', city: 'Aarhus', phone: '12345678', email: 'dealer-nine@example.test', password: DEALER_SHORT });
     assert.equal(dealerNine.status, 400);
-    const dealer = await post(live.base, '/api/auth/register', { company_name: 'Lang', cvr: '22334456', city: 'Aarhus', email: 'dealer-ok@example.test', password: DEALER_OK });
+    const dealer = await post(live.base, '/api/auth/register', { company_name: 'Lang', cvr: '22334456', city: 'Aarhus', phone: '12345678', email: 'dealer-ok@example.test', password: DEALER_OK });
     assert.equal(dealer.status, 201);
     const row = ctx.db.prepare('SELECT id FROM users WHERE email=?').get('dealer-ok@example.test');
     await post(live.base, `/api/admin/dealers/${row.id}/approve`, {}, admin.cookie);

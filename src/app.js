@@ -172,7 +172,10 @@ function createApp(opts = {}) {
       number: `AG-${d.getUTCFullYear()}-${String(order.id).padStart(5, '0')}`,
       date: d.toISOString(),
       seller: { name: seller.name, cvr: seller.cvr, address: seller.address },
-      buyer: { company: dealer.company_name, cvr: dealer.cvr, city: dealer.city, contact: dealer.name, email: dealer.email },
+      buyer: {
+        company: dealer.company_name, cvr: dealer.cvr, city: dealer.city, contact: dealer.name, email: dealer.email,
+        ...(dealer.phone ? { phone: dealer.phone } : {}),
+      },
       subject: order.item_label,
       items: items.map((i) => ({ vin: i.vin, description: vehicleLabel(i), price: i.price })),
       price_excl_vat: agreed,
@@ -240,7 +243,7 @@ function createApp(opts = {}) {
     }
     out.vehicles = orderVehicles(o.id).map((vid) => db.prepare('SELECT id,vin,make,model,variant FROM vehicles WHERE id=?').get(vid)).filter(Boolean);
     if (withDealer) {
-      const d = db.prepare('SELECT id,name,email,company_name,cvr,city FROM users WHERE id=?').get(o.dealer_id);
+      const d = db.prepare('SELECT id,name,email,company_name,cvr,city,phone FROM users WHERE id=?').get(o.dealer_id);
       out.dealer = d;
     }
     return out;
@@ -282,7 +285,19 @@ function createApp(opts = {}) {
   const wrap = (fn) => (req, res, next) => { try { const r = fn(req, res, next); if (r && r.catch) r.catch(next); } catch (e) { next(e); } };
   const idParam = (req) => { const n = Number(req.params.id); if (!Number.isInteger(n) || n < 1) throw new HttpError(404, 'Ikke fundet'); return n; };
 
-  const publicUser = (u) => u && ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, company_name: u.company_name, cvr: u.cvr, city: u.city, password_min_length: minLengthForRole(u.role) });
+  const publicUser = (u) => u && ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, company_name: u.company_name, cvr: u.cvr, city: u.city, phone: u.phone || null, password_min_length: minLengthForRole(u.role) });
+  function normalizePhone(raw) {
+    const text = str(raw, { required: true, max: 40, field: 'Telefonnummer' });
+    const compact = text.replace(/[\s.-]/g, '');
+    if (!/^\+?\d{8,15}$/.test(compact)) throw bad('Telefonnummer skal være 8-15 cifre');
+    const digits = compact.slice(compact.startsWith('+') ? 1 : 0);
+    if (compact.startsWith('+45') && digits.length === 10) {
+      const local = digits.slice(2);
+      return `+45 ${local.slice(0, 2)} ${local.slice(2, 4)} ${local.slice(4, 6)} ${local.slice(6, 8)}`;
+    }
+    if (!compact.startsWith('+') && digits.length === 8) return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+    return compact.startsWith('+') ? `+${digits}` : digits;
+  }
 
   // ---------- auth ----------
   const attempts = new Map();
@@ -339,13 +354,14 @@ function createApp(opts = {}) {
     const cvr = str(b.cvr, { required: true, max: 20, field: 'CVR' }).replace(/\s|^DK/gi, '');
     if (!/^\d{8}$/.test(cvr)) throw bad('CVR-nummer skal være 8 cifre');
     const city = str(b.city, { required: true, max: 80, field: 'By' });
+    const phone = normalizePhone(b.phone);
     const email = checkEmail(b.email);
     const password = checkPassword(b.password, 'dealer');
     if (db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) throw new HttpError(409, 'E-mail er allerede i brug');
     if (db.prepare(`SELECT 1 FROM users WHERE cvr=? AND role='dealer' AND status IN ('pending','approved')`).get(cvr)) throw new HttpError(409, 'CVR-nummer er allerede registreret');
     // role/status are NEVER taken from the request: public signup is always a pending dealer.
-    db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name,cvr,city,created_at) VALUES (?,?,?,'dealer','pending',?,?,?,?)`)
-      .run(email, str(b.contact_name, { max: 120 }) || company, A.hashPassword(password), company, cvr, city, new Date(now()).toISOString());
+    db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name,cvr,city,phone,created_at) VALUES (?,?,?,'dealer','pending',?,?,?,?,?)`)
+      .run(email, str(b.contact_name, { max: 120 }) || company, A.hashPassword(password), company, cvr, city, phone, new Date(now()).toISOString());
     res.status(201).json({ ok: true, message: 'Din ansøgning er modtaget og afventer godkendelse.' });
   }));
 
@@ -705,7 +721,7 @@ function createApp(opts = {}) {
 
   // ---------- admin: dealers / admins ----------
   app.get('/api/admin/dealers', requireAdmin, wrap((req, res) => {
-    const rows = db.prepare(`SELECT id,email,name,company_name,cvr,city,status,created_at FROM users WHERE role='dealer' ORDER BY id DESC`).all();
+    const rows = db.prepare(`SELECT id,email,name,company_name,cvr,city,phone,status,created_at FROM users WHERE role='dealer' ORDER BY id DESC`).all();
     res.json({ dealers: rows });
   }));
   app.put('/api/admin/dealers/:id', requireAdmin, wrap((req, res) => {
@@ -725,9 +741,9 @@ function createApp(opts = {}) {
     if (db.prepare('SELECT 1 FROM users WHERE email=? AND id<>?').get(email, id)) throw new HttpError(409, 'E-mail er allerede i brug');
     if (db.prepare(`SELECT 1 FROM users WHERE cvr=? AND role='dealer' AND status IN ('pending','approved') AND id<>?`).get(cvr, id)) throw new HttpError(409, 'CVR-nummer er allerede registreret');
     db.prepare(`UPDATE users SET company_name=?, cvr=?, city=?, name=?, email=? WHERE id=? AND role='dealer'`).run(company, cvr, city, name, email, id);
-    const row = db.prepare('SELECT id,email,name,company_name,cvr,city,status,role,password_hash FROM users WHERE id=?').get(id);
+    const row = db.prepare('SELECT id,email,name,company_name,cvr,city,phone,status,role,password_hash FROM users WHERE id=?').get(id);
     if (row.role !== 'dealer' || row.password_hash !== d.password_hash) throw new HttpError(500, 'Kontoen må ikke ændre rolle eller adgangskode');
-    res.json({ dealer: { id: row.id, email: row.email, name: row.name, company_name: row.company_name, cvr: row.cvr, city: row.city, status: row.status } });
+    res.json({ dealer: { id: row.id, email: row.email, name: row.name, company_name: row.company_name, cvr: row.cvr, city: row.city, phone: row.phone || null, status: row.status } });
   }));
   app.post('/api/admin/dealers/:id/:action', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
@@ -840,6 +856,18 @@ function createApp(opts = {}) {
       releaseOrder(o);
     });
     res.json({ ok: true });
+  }));
+  app.put('/api/shop/profile', (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Du skal være logget ind' });
+    if (req.user.role !== 'dealer') return res.status(403).json({ error: 'Kun for forhandlere' });
+    next();
+  }, wrap((req, res) => {
+    const b = req.body || {};
+    if (b.id !== undefined || b.email !== undefined || b.role !== undefined) throw bad('Feltet kan ikke ændres her');
+    const phone = normalizePhone(b.phone);
+    db.prepare(`UPDATE users SET phone=? WHERE id=? AND role='dealer'`).run(phone, req.user.id);
+    const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+    res.json({ user: publicUser(user) });
   }));
   app.get('/api/shop/notifications', requireDealer, wrap((req, res) => {
     res.json({ notifications: db.prepare('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 20').all(req.user.id) });
