@@ -92,7 +92,7 @@ sudo docker compose restart
 
 Cars, lots, dealer approvals, and orders entered before the restart must still be there. Changing the password inside `secrets.env` must not change the live password.
 
-This build adds archive columns on `orders` and an `order_corrections` table the first time it opens the database. It does not rewrite a stored agreement. `deploy/OPERATOR.md` describes which admin fields can change and how to roll back. Rolling the application back to the previous build leaves the new columns in place.
+This build adds archive columns on `orders` and an `order_corrections` table the first time it opens the database. It does not rewrite a stored agreement. A confirmed or completed purchase keeps its cars off sale, including after the order is archived. `deploy/OPERATOR.md` describes the fields and the rollback risk. Running `7477c4aa` against this database ignores `archived_at`, so archived orders become visible live orders again. Restore the database backup taken before this build instead of only swapping the application back.
 
 ## 4. Caddy
 

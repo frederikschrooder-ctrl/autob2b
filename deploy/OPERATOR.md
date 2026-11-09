@@ -113,7 +113,16 @@ Slet on an order archives it. The row, the agreement, and the price stored insid
 
 A price correction requires a written reason. It appends a row to `order_corrections` and updates the operational order price. It does not change the agreement. Dealer passwords, roles, and the secrets file are not editable from these screens. An administrator account cannot be deleted or demoted here.
 
-Rollback of the application to the previous build leaves the new columns and the corrections table in place. That older build does not read them and does not delete them. Take the usual data backup before replacing the running build. Do not delete `order_corrections` or the agreement column as part of a rollback.
+A confirmed or completed purchase protects its cars and lot whether or not the order is archived. The admin form cannot mark those cars available or delete them. The shop does not list them, and a second buy or reservation is refused. The agreement is left as stored. Cancelling a pending reservation, or cancelling a confirmed order that has not been completed, is the release path: that order stops protecting the cars, and the cars return to sale only when no other purchase still covers them. A completed order cannot be cancelled, so its cars stay protected.
+
+Rollback of the application to `7477c4aa` does not drop the new columns or `order_corrections`, and that build never reads `archived_at`. Opening the migrated database with that older build is not a clean rollback:
+
+- Archived orders show up in the normal order list again.
+- An archived reservation is still `pending`. The older build treats every pending or confirmed order as a live hold. A reservation this build already released can block the car again, or sit next to a newer order for the same car.
+- An archived confirmed order reappears as a live confirmed order.
+- `7477c4aa` does not protect a completed sale from being marked available. Rolling back does not close that hole.
+
+The safe rollback is to restore the database and uploads backup taken before this build started, then run `7477c4aa`. Do not delete orders, agreements, or `order_corrections` by hand. Take that backup before the new build is started against a database that already has orders.
 
 ## One-time admin bootstrap
 

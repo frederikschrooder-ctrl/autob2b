@@ -77,16 +77,29 @@ function createApp(opts = {}) {
     if (!p) return null;
     const cars = pkgCars(p.id);
     let effective = p.status;
-    if (cars.length === 0 || (p.status === 'available' && cars.some((c) => c.status !== 'available'))) effective = 'unavailable';
+    if (cars.length === 0 || (p.status === 'available' && cars.some((c) => c.status !== 'available' || saleLocked(c.id)))) effective = 'unavailable';
     return { ...p, vehicles: cars, vehicle_count: cars.length, effective_status: effective };
   };
-  const activeOrderFor = (vehicleId) => db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND ((o.archived_at IS NULL AND o.status IN ('pending','confirmed')) OR (o.archived_at IS NOT NULL AND o.status='confirmed'))`).get(vehicleId);
   const orderVehicles = (orderId) => db.prepare('SELECT vehicle_id FROM order_vehicles WHERE order_id=?').all(orderId).map((r) => r.vehicle_id);
+  const LOCK_SQL = `(o.status IN ('confirmed','completed') OR (o.status='pending' AND o.archived_at IS NULL))`;
+  function lockingOrder(vehicleId, exceptOrderId = 0) {
+    return db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.id<>? AND ${LOCK_SQL} LIMIT 1`).get(vehicleId, exceptOrderId);
+  }
+  function saleLocked(vehicleId, exceptOrderId = 0) {
+    return !!db.prepare(`SELECT 1 FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.id<>? AND o.status IN ('confirmed','completed') LIMIT 1`).get(vehicleId, exceptOrderId);
+  }
 
   function releaseOrder(order) {
     const upd = db.prepare(`UPDATE vehicles SET status='available' WHERE id=?`);
-    orderVehicles(order.id).forEach((vid) => upd.run(vid));
-    if (order.package_id) db.prepare(`UPDATE packages SET status='available' WHERE id=?`).run(order.package_id);
+    for (const vid of orderVehicles(order.id)) {
+      if (lockingOrder(vid, order.id)) continue;
+      upd.run(vid);
+    }
+    if (order.package_id) {
+      const still = orderVehicles(order.id).some((vid) => lockingOrder(vid, order.id));
+      const other = db.prepare(`SELECT 1 FROM orders o WHERE o.package_id=? AND o.id<>? AND ${LOCK_SQL}`).get(order.package_id, order.id);
+      if (!still && !other) db.prepare(`UPDATE packages SET status='available' WHERE id=?`).run(order.package_id);
+    }
   }
   function setOrderItemsStatus(order, status) {
     const upd = db.prepare('UPDATE vehicles SET status=? WHERE id=?');
@@ -161,6 +174,9 @@ function createApp(opts = {}) {
     const isPkg = !!pkg;
     const cars = isPkg ? pkgCars(pkg.id) : [vehicle];
     if (isPkg && cars.length === 0) throw new HttpError(409, 'Partiet indeholder ingen biler');
+    for (const c of cars) {
+      if (lockingOrder(c.id)) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
+    }
     const price = isPkg ? pkg.total_price : vehicle.price;
     const label = isPkg ? `Parti: ${pkg.name}` : vehicleLabel(vehicle);
     const expires = kind === 'reserve' ? new Date(now() + RESERVE_MS).toISOString() : null;
@@ -374,7 +390,9 @@ function createApp(opts = {}) {
     let status = cur.status;
     if (req.body.status !== undefined && req.body.status !== cur.status) {
       if (!VEHICLE_STATUSES.includes(req.body.status)) throw bad('Ugyldig status');
-      if (activeOrderFor(id)) throw new HttpError(409, 'Bilen har en aktiv ordre – håndter ordren i stedet');
+      const lock = lockingOrder(id);
+      if (lock && lock.status === 'pending') throw new HttpError(409, 'Bilen har en aktiv reservation – håndter ordren i stedet');
+      if (lock && req.body.status !== 'sold') throw new HttpError(409, 'Bilen indgår i et køb og kan ikke sættes til salg igen');
       status = req.body.status;
     }
     db.prepare(`UPDATE vehicles SET vin=?,make=?,model=?,variant=?,first_registration=?,mileage=?,fuel=?,transmission=?,color=?,price=?,images=?,condition_report_url=?,status=? WHERE id=?`)
@@ -384,7 +402,9 @@ function createApp(opts = {}) {
   app.delete('/api/admin/vehicles/:id', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
     if (!getVehicle(id)) throw new HttpError(404, 'Bil ikke fundet');
-    if (activeOrderFor(id)) throw new HttpError(409, 'Bilen har en aktiv ordre og kan ikke slettes. Annuller ordren først.');
+    const lock = lockingOrder(id);
+    if (lock && lock.status === 'pending') throw new HttpError(409, 'Bilen har en aktiv reservation og kan ikke slettes. Annuller reservationen først.');
+    if (lock) throw new HttpError(409, 'Bilen indgår i et køb og kan ikke slettes.');
     db.prepare('DELETE FROM vehicles WHERE id=?').run(id);
     res.json({ ok: true });
   }));
@@ -412,10 +432,9 @@ function createApp(opts = {}) {
   function assertPackageMembership(ids, exceptPackageId) {
     ids.forEach((vid) => {
       const v = db.prepare('SELECT status FROM vehicles WHERE id=?').get(vid);
-      if (!v || v.status !== 'available') throw new HttpError(409, 'En bil i partiet er ikke tilgængelig');
+      if (!v || v.status !== 'available' || lockingOrder(vid)) throw new HttpError(409, 'En bil i partiet er ikke tilgængelig');
       const other = db.prepare('SELECT package_id FROM package_vehicles WHERE vehicle_id=? AND package_id<>?').get(vid, exceptPackageId || 0);
       if (other) throw new HttpError(409, 'En bil indgår allerede i et andet parti');
-      if (activeOrderFor(vid)) throw new HttpError(409, 'En bil har en aktiv ordre');
     });
   }
   app.get('/api/admin/packages', requireAdmin, wrap((req, res) => {
@@ -540,7 +559,7 @@ function createApp(opts = {}) {
       if (o.status === 'pending') {
         for (const vid of vids) {
           const v = db.prepare('SELECT status FROM vehicles WHERE id=?').get(vid);
-          if (!v || v.status !== 'available' || activeOrderFor(vid)) throw new HttpError(409, 'Ordren kan ikke gendannes, fordi en bil ikke længere er ledig');
+          if (!v || v.status !== 'available' || lockingOrder(vid, id)) throw new HttpError(409, 'Ordren kan ikke gendannes, fordi en bil ikke længere er ledig');
         }
         if (o.package_id) {
           const p = db.prepare('SELECT status FROM packages WHERE id=?').get(o.package_id);
@@ -654,7 +673,7 @@ function createApp(opts = {}) {
   // ---------- dealer shop ----------
   app.get('/api/shop/vehicles', requireDealer, wrap((req, res) => {
     expireOrders();
-    const where = [`status='available'`]; const p = [];
+    const where = [`status='available'`, `NOT EXISTS (SELECT 1 FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=vehicles.id AND ${LOCK_SQL})`]; const p = [];
     const q = str(req.query.q, { max: 100 });
     if (q) { where.push(`(make LIKE ? ESCAPE '\\' OR model LIKE ? ESCAPE '\\' OR variant LIKE ? ESCAPE '\\')`); const l = `%${likeEsc(q)}%`; p.push(l, l, l); }
     if (req.query.fuel) { if (!FUELS.includes(req.query.fuel)) throw bad('Ugyldig brændstoftype'); where.push('fuel=?'); p.push(req.query.fuel); }
@@ -665,7 +684,7 @@ function createApp(opts = {}) {
     expireOrders();
     const v = getVehicle(idParam(req));
     const mine = v && myHold(v.id, req.user.id);
-    if (!v || (v.status !== 'available' && !mine)) throw new HttpError(404, 'Bilen er ikke tilgængelig');
+    if (!v || saleLocked(v.id) || (!mine && (v.status !== 'available' || lockingOrder(v.id)))) throw new HttpError(404, 'Bilen er ikke tilgængelig');
     res.json({ vehicle: v, my_reservation: mine ? orderOut(mine) : null });
   }));
   app.get('/api/shop/packages', requireDealer, wrap((req, res) => {
@@ -687,6 +706,7 @@ function createApp(opts = {}) {
         if (target === 'vehicle') {
           const v = getVehicle(id); if (!v) throw new HttpError(404, 'Bilen findes ikke');
           const mine = kind === 'buy' ? myHold(id, req.user.id) : null;
+          if (saleLocked(id) || lockingOrder(id, mine ? mine.id : 0)) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
           if (mine) { // convert own reservation into a purchase
             const claimed = db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).run(v.price, mine.id, req.user.id);
             if (claimed.changes !== 1) throw new HttpError(409, 'Reservationen kan ikke længere omsættes til køb');
@@ -700,6 +720,9 @@ function createApp(opts = {}) {
         }
         const p = pkgOut(db.prepare('SELECT * FROM packages WHERE id=?').get(id)); if (!p) throw new HttpError(404, 'Partiet findes ikke');
         const mine = kind === 'buy' ? db.prepare(`SELECT * FROM orders WHERE package_id=? AND dealer_id=? AND status='pending' AND kind='reserve' AND archived_at IS NULL`).get(id, req.user.id) : null;
+        for (const c of p.vehicles) {
+          if (lockingOrder(c.id, mine ? mine.id : 0)) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
+        }
         if (mine) {
           const claimed = db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).run(p.total_price, mine.id, req.user.id);
           if (claimed.changes !== 1) throw new HttpError(409, 'Reservationen kan ikke længere omsættes til køb');
