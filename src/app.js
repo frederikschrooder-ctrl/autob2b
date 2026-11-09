@@ -409,7 +409,7 @@ function createApp(opts = {}) {
     const ids = (req.body || {}).image_ids;
     if (!Array.isArray(ids) || ids.some((n) => !Number.isInteger(n))) throw bad('Billedrækkefølgen er ugyldig');
     const rows = imageRows(id);
-    if (ids.length !== rows.length || new Set(ids).size !== ids.length) throw bad('Billedrækkefølgen skal indeholde hvert billede præcis én gang');
+    if (rows.length === 0 || ids.length !== rows.length || new Set(ids).size !== ids.length) throw bad('Billedrækkefølgen skal indeholde hvert billede præcis én gang');
     const byId = new Map(rows.map((r) => [r.id, r.url]));
     if (ids.some((imageId) => !byId.has(imageId))) throw bad('Billedrækkefølgen skal indeholde hvert billede præcis én gang');
     const before = db.prepare('SELECT price, status FROM vehicles WHERE id=?').get(id);

@@ -39,23 +39,53 @@ async function send(base, method, url, cookie, body, headers = {}) {
   return { status: r.status, json };
 }
 
-test('existing image lists get a stable position without losing urls', () => {
+test('startup does not rewrite existing vehicles, packages, images, orders, or agreements', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-imgmig-'));
   const dbFile = path.join(dir, 't.sqlite');
+  const agreement = JSON.stringify({ seller: { name: 'Højbogaard Biler', cvr: '14952705' }, price_excl_vat: 4500, items: [{ vin: 'OLDVIN000000001', price: 2000 }, { vin: 'OLDVIN000000002', price: 3000 }] });
+  const images = JSON.stringify([A, B]);
   const first = createApp({ dbFile, uploadDir: path.join(dir, 'up'), env: {}, noTimer: true, rateLimit: false });
-  first.db.prepare(`INSERT INTO vehicles (vin,make,model,price,images) VALUES (?,?,?,?,?)`).run('MIGVIN000000001', 'M', 'M', 1000, JSON.stringify([A, B]));
+  first.db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name,cvr,city) VALUES (?,?,?,'dealer','approved',?,?,?)`).run('old-dealer@example.test', 'Dealer', hashPassword('Old-Dealer-Pass-1'), 'Gammel', '62334455', 'Aabybro');
+  const dealerId = Number(first.db.prepare(`SELECT id FROM users WHERE email='old-dealer@example.test'`).get().id);
+  const v1 = Number(first.db.prepare(`INSERT INTO vehicles (vin,make,model,price,images,status) VALUES (?,?,?,?,?,?)`).run('OLDVIN000000001', 'Audi', 'A4', 2000, images, 'sold').lastInsertRowid);
+  const v2 = Number(first.db.prepare(`INSERT INTO vehicles (vin,make,model,price,images,status) VALUES (?,?,?,?,?,?)`).run('OLDVIN000000002', 'BMW', '320', 3000, '[]', 'sold').lastInsertRowid);
+  const pkg = Number(first.db.prepare(`INSERT INTO packages (name,total_price,description,status) VALUES (?,?,?,?)`).run('test sælgeaftale', 4500, 'behold', 'sold').lastInsertRowid);
+  first.db.prepare('INSERT INTO package_vehicles (package_id,vehicle_id) VALUES (?,?)').run(pkg, v1);
+  first.db.prepare('INSERT INTO package_vehicles (package_id,vehicle_id) VALUES (?,?)').run(pkg, v2);
+  const orderId = Number(first.db.prepare(`INSERT INTO orders (dealer_id,package_id,kind,status,price,item_label,agreement) VALUES (?,?,?,?,?,?,?)`).run(dealerId, pkg, 'buy', 'confirmed', 4500, 'Parti: test sælgeaftale', agreement).lastInsertRowid);
+  first.db.prepare('INSERT INTO order_vehicles (order_id,vehicle_id) VALUES (?,?)').run(orderId, v1);
+  first.db.prepare('INSERT INTO order_vehicles (order_id,vehicle_id) VALUES (?,?)').run(orderId, v2);
+  const snapshot = {
+    vehicles: first.db.prepare('SELECT id, vin, make, model, price, images, status FROM vehicles ORDER BY id').all(),
+    packages: first.db.prepare('SELECT id, name, total_price, description, status FROM packages ORDER BY id').all(),
+    packageVehicles: first.db.prepare('SELECT package_id, vehicle_id FROM package_vehicles ORDER BY package_id, vehicle_id').all(),
+    orders: first.db.prepare('SELECT id, dealer_id, vehicle_id, package_id, kind, status, price, item_label, agreement FROM orders ORDER BY id').all(),
+    orderVehicles: first.db.prepare('SELECT order_id, vehicle_id FROM order_vehicles ORDER BY order_id, vehicle_id').all(),
+    dealer: first.db.prepare(`SELECT email, name, role, status, company_name, cvr, city FROM users WHERE email='old-dealer@example.test'`).get(),
+  };
   first.close();
   const second = createApp({ dbFile, uploadDir: path.join(dir, 'up'), env: {}, noTimer: true, rateLimit: false });
   try {
-    const rows = second.db.prepare('SELECT url, position FROM vehicle_images ORDER BY position').all();
-    assert.deepEqual(rows.map((r) => r.position), [1, 2]);
-    assert.deepEqual(rows.map((r) => r.url), [A, B]);
-    assert.equal(second.db.prepare('SELECT images FROM vehicles').get().images, JSON.stringify([A, B]));
+    assert.equal(second.db.prepare('SELECT COUNT(*) n FROM vehicle_images').get().n, 0);
+    assert.deepEqual(second.db.prepare('SELECT id, vin, make, model, price, images, status FROM vehicles ORDER BY id').all(), snapshot.vehicles);
+    assert.deepEqual(second.db.prepare('SELECT id, name, total_price, description, status FROM packages ORDER BY id').all(), snapshot.packages);
+    assert.deepEqual(second.db.prepare('SELECT package_id, vehicle_id FROM package_vehicles ORDER BY package_id, vehicle_id').all(), snapshot.packageVehicles);
+    assert.deepEqual(second.db.prepare('SELECT id, dealer_id, vehicle_id, package_id, kind, status, price, item_label, agreement FROM orders ORDER BY id').all(), snapshot.orders);
+    assert.deepEqual(second.db.prepare('SELECT order_id, vehicle_id FROM order_vehicles ORDER BY order_id, vehicle_id').all(), snapshot.orderVehicles);
+    assert.deepEqual(second.db.prepare(`SELECT email, name, role, status, company_name, cvr, city FROM users WHERE email='old-dealer@example.test'`).get(), snapshot.dealer);
+    assert.equal(second.db.prepare('SELECT images FROM vehicles WHERE id=?').get(v1).images, images);
+    assert.equal(second.db.prepare('SELECT agreement FROM orders WHERE id=?').get(orderId).agreement, agreement);
+    second.db.prepare(`INSERT INTO users (email,name,password_hash,role,status) VALUES (?,?,?,'admin','approved')`).run('old-admin@example.test', 'Admin', hashPassword('Old-Admin-Pass-1'));
+    const live = await listen(second);
+    try {
+      const admin = await login(live.base, 'old-admin@example.test', 'Old-Admin-Pass-1');
+      const seen = await send(live.base, 'GET', '/api/admin/vehicles/' + v1, admin);
+      assert.deepEqual(seen.json.vehicle.images, [A, B]);
+      assert.deepEqual(seen.json.vehicle.image_ids, []);
+      assert.equal(second.db.prepare('SELECT images FROM vehicles WHERE id=?').get(v1).images, images);
+      assert.equal(second.db.prepare('SELECT agreement FROM orders WHERE id=?').get(orderId).agreement, agreement);
+    } finally { live.server.close(); }
   } finally { second.close(); }
-  const third = createApp({ dbFile, uploadDir: path.join(dir, 'up'), env: {}, noTimer: true, rateLimit: false });
-  try {
-    assert.deepEqual(third.db.prepare('SELECT url FROM vehicle_images ORDER BY position').all().map((r) => r.url), [A, B]);
-  } finally { third.close(); }
 });
 
 test('only an admin can set a complete image order, and the cover follows it', async () => {

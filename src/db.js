@@ -99,14 +99,6 @@ function openDb(file) {
     url TEXT NOT NULL,
     position INTEGER NOT NULL
   )`);
-  const pending = db.prepare(`SELECT v.id, v.images FROM vehicles v WHERE NOT EXISTS (SELECT 1 FROM vehicle_images i WHERE i.vehicle_id=v.id)`).all();
-  const insertImage = db.prepare('INSERT INTO vehicle_images (vehicle_id, url, position) VALUES (?,?,?)');
-  for (const vehicle of pending) {
-    let urls = [];
-    try { urls = JSON.parse(vehicle.images || '[]'); } catch { urls = []; }
-    if (!Array.isArray(urls)) continue;
-    urls.forEach((url, index) => { if (typeof url === 'string') insertImage.run(vehicle.id, url, index + 1); });
-  }
   return db;
 }
 module.exports = { openDb };
