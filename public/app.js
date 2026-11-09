@@ -404,8 +404,13 @@ async function packagesPage() {
     try { await api('POST', '/api/admin/packages', d); packagesPage(); } catch (err) { showErr(msg, err); window.scrollTo(0, 0); }
   });
   document.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
-    if (!confirm(`Slet partiet "${b.dataset.name}"? Bilerne i partiet bliver ikke slettet.`)) return;
-    try { await api('DELETE', '/api/admin/packages/' + b.dataset.del); packagesPage(); } catch (err) { showErr(sel('#msg'), err); }
+    if (!confirm(`Slet partiet "${b.dataset.name}"?\n\nEt parti uden ordrer slettes sammen med dets biler og billeder.\nEt parti med en ordre eller købsaftale fjernes fra listen. Aftalen og ordren bliver liggende.`)) return;
+    try { await api('DELETE', '/api/admin/packages/' + b.dataset.del); packagesPage(); }
+    catch (err) {
+      const msg = sel('#msg');
+      showErr(msg, err);
+      if (msg) msg.scrollIntoView({ block: 'center' });
+    }
   }));
 }
 

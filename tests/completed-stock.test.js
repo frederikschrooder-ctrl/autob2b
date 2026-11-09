@@ -125,7 +125,8 @@ test('a completed package and its cars cannot be sold a second time', async () =
     }
     assert.equal((await send(live.base, 'POST', `/api/shop/packages/${pkg.id}/buy`, b, {})).status, 409);
     assert.equal((await send(live.base, 'POST', `/api/shop/packages/${pkg.id}/reserve`, b, {})).status, 409);
-    assert.equal((await send(live.base, 'DELETE', '/api/admin/packages/' + pkg.id, admin)).status, 409);
+    assert.equal((await send(live.base, 'DELETE', '/api/admin/packages/' + pkg.id, admin)).json.archived, true);
+    assert.equal((await send(live.base, 'GET', '/api/admin/packages', admin)).json.packages.some((p) => p.id === pkg.id), false);
     assert.equal((await send(live.base, 'PUT', '/api/admin/packages/' + pkg.id, admin, { name: 'Solgt parti', total_price: 4500, vehicle_ids: [v1.id, v2.id] })).status, 409);
     assert.equal(ctx.db.prepare('SELECT status FROM packages WHERE id=?').get(pkg.id).status, 'sold');
     assert.equal(ctx.db.prepare('SELECT agreement FROM orders WHERE id=?').get(bought.json.order.id).agreement, agreement);

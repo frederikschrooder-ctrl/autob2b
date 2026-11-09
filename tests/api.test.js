@@ -125,7 +125,7 @@ test('admin: create parti with selected cars, notifies dealers, delete parti', a
   assert.equal((await d.c.get('/api/shop/packages')).json.packages.some((x) => x.id === p.json.package.id), true);
   assert.equal((await a.del(`/api/admin/packages/${p.json.package.id}`)).status, 200);
   assert.equal((await a.get('/api/admin/packages')).json.packages.some((x) => x.id === p.json.package.id), false);
-  assert.equal((await a.get(`/api/admin/vehicles/${v1.id}`)).status, 200); // cars survive parti deletion
+  assert.equal((await a.get(`/api/admin/vehicles/${v1.id}`)).status, 404);
 });
 
 test('dealer: register -> pending blocked -> approve -> reserve -> auto-expire frees car', async () => {

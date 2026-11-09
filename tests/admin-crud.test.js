@@ -183,7 +183,12 @@ test('archiving a reservation releases it, and a failed restore does not reserve
     assert.equal(restore.status, 409);
     assert.equal(fx.ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(b.id).status, 'available');
     assert.equal(fx.ctx.db.prepare('SELECT archived_at FROM orders WHERE id=?').get(id).archived_at == null, false);
-    assert.equal((await send(live.base, 'DELETE', '/api/admin/packages/' + pkg.id, admin)).status, 409);
+    const hidden = await send(live.base, 'DELETE', '/api/admin/packages/' + pkg.id, admin);
+    assert.equal(hidden.status, 200);
+    assert.equal(hidden.json.archived, true);
+    assert.equal(fx.ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(a.id).status, 'sold');
+    assert.equal(fx.ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(b.id).status, 'available');
+    assert.equal(fx.ctx.db.prepare('SELECT archived_at FROM orders WHERE id=?').get(id).archived_at == null, false);
   } finally { live.server.close(); fx.ctx.close(); }
 });
 

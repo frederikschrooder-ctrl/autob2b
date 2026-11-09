@@ -493,7 +493,7 @@ function createApp(opts = {}) {
   }
   app.get('/api/admin/packages', requireAdmin, wrap((req, res) => {
     expireOrders();
-    res.json({ packages: db.prepare('SELECT * FROM packages ORDER BY id DESC').all().map(pkgOut) });
+    res.json({ packages: db.prepare('SELECT * FROM packages WHERE archived_at IS NULL ORDER BY id DESC').all().map(pkgOut) });
   }));
   app.get('/api/admin/packages/:id', requireAdmin, wrap((req, res) => {
     expireOrders();
@@ -527,12 +527,36 @@ function createApp(opts = {}) {
     });
     res.json({ package: pkgOut(db.prepare('SELECT * FROM packages WHERE id=?').get(id)) });
   }));
+  function removeOwnedUpload(url) {
+    const name = String(url || '').match(/^\/uploads\/([a-f0-9]{32}\.(?:jpg|png|webp|heic))$/);
+    if (!name) return;
+    if (db.prepare('SELECT 1 FROM vehicle_images WHERE url=?').get(url)) return;
+    try { fs.unlinkSync(path.join(uploadDir, name[1])); } catch { /* already gone */ }
+  }
   app.delete('/api/admin/packages/:id', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
     if (!db.prepare('SELECT 1 FROM packages WHERE id=?').get(id)) throw new HttpError(404, 'Parti ikke fundet');
-    if (db.prepare('SELECT 1 FROM orders WHERE package_id=?').get(id)) throw new HttpError(409, 'Partiet indgår i en ordre og kan ikke slettes');
-    db.prepare('DELETE FROM packages WHERE id=?').run(id);
-    res.json({ ok: true });
+    const linked = db.prepare('SELECT id, agreement FROM orders WHERE package_id=? ORDER BY id').all(id);
+    if (linked.length) {
+      const before = linked.map((o) => o.agreement);
+      db.prepare('UPDATE packages SET archived_at=? WHERE id=?').run(new Date(now()).toISOString(), id);
+      const after = db.prepare('SELECT id, agreement, price, status FROM orders WHERE package_id=? ORDER BY id').all(id);
+      if (after.length !== linked.length || after.some((o, i) => o.agreement !== before[i])) throw new HttpError(500, 'Aftalen må ikke ændres');
+      res.json({ ok: true, archived: true });
+      return;
+    }
+    const removed = tx(() => {
+      const vids = db.prepare('SELECT vehicle_id FROM package_vehicles WHERE package_id=?').all(id).map((r) => r.vehicle_id);
+      for (const vid of vids) {
+        if (lockingOrder(vid)) throw new HttpError(409, 'En bil i partiet indgår i et køb og kan ikke slettes sammen med partiet');
+      }
+      const urls = vids.flatMap((vid) => imageRows(vid).map((r) => r.url));
+      for (const vid of vids) db.prepare('DELETE FROM vehicles WHERE id=?').run(vid);
+      db.prepare('DELETE FROM packages WHERE id=?').run(id);
+      return urls;
+    });
+    for (const url of removed) removeOwnedUpload(url);
+    res.json({ ok: true, archived: false });
   }));
 
   // ---------- admin: orders ----------

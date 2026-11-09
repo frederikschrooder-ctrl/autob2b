@@ -91,6 +91,8 @@ function openDb(file) {
   addOrderCol('archived_at', 'ALTER TABLE orders ADD COLUMN archived_at TEXT');
   addOrderCol('archived_by', 'ALTER TABLE orders ADD COLUMN archived_by INTEGER');
   addOrderCol('archive_note', 'ALTER TABLE orders ADD COLUMN archive_note TEXT');
+  const packageCols = db.prepare('PRAGMA table_info(packages)').all().map((c) => c.name);
+  if (!packageCols.includes('archived_at')) db.exec('ALTER TABLE packages ADD COLUMN archived_at TEXT');
   db.exec(`CREATE TABLE IF NOT EXISTS vehicle_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
