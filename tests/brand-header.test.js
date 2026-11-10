@@ -32,9 +32,10 @@ test('header brand links home and names Højbogård B2B', () => {
   vm.createContext(context);
   vm.runInContext(src + '\nglobalThis.__brand = brandLink;\nglobalThis.__setUser = (u) => { S.user = u; };\n', context);
   assert.equal(title, 'Højbogård B2B – Lukket B2B Platform for Forhandlere');
-  assert.equal(footer.textContent, '© Højbogård B2B – Business to business for bilforhandlere');
-  assert.equal(src.includes('Højboogård'), false);
+  assert.equal(footer.textContent, '© Højboogård B2B – Business to business for bilforhandlere');
+  assert.equal(src.includes('Højboogård'), true);
   const loggedOut = context.__brand();
+  assert.equal(loggedOut.includes('Højboogård'), false);
   assert.match(loggedOut, /<a data-link class="brandlink" href="\/">/);
   assert.match(loggedOut, /aria-label="Højbogård B2B"/);
   assert.match(loggedOut, />øjbogård B2B</);
