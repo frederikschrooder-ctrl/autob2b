@@ -177,15 +177,19 @@ test('a cart purchase lists every vehicle and leaves an older agreement unchange
   } finally { if (!fx.closed) { live.server.close(); fx.ctx.close(); } }
 });
 
-test('the shop list offers a multi-select bar and the cart is dealer-only', () => {
+test('the shop list adds one car at a time and Bestil samlet places one order', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  const shop = src.slice(src.indexOf('function selectionLabel'), src.indexOf('async function shopVehicle'));
-  assert.match(shop, /data-pick=/);
-  assert.match(shop, /1 bil valgt/);
-  assert.match(shop, /biler valgt/);
-  assert.match(shop, /– Tilføj til kurv/);
-  assert.match(shop, /id="cartbar"/);
-  assert.match(src, /\/api\/shop\/cart/);
+  const shop = src.slice(src.indexOf('function cartIcon'), src.indexOf('async function shopVehicle'));
+  assert.match(shop, /Tilføj til kurv/);
+  assert.match(shop, /I kurven/);
+  assert.match(shop, /Se detaljer/);
+  assert.match(shop, /data-add=/);
+  assert.match(shop, /data-drop=/);
+  assert.match(shop, /id="cartcount"/);
+  assert.match(shop, /Bestil samlet/);
+  assert.equal(shop.includes('data-pick'), false);
+  assert.equal(shop.includes('cartbar'), false);
+  assert.match(src, /\/api\/shop\/cart\/buy/);
   const orders = src.slice(src.indexOf('async function shopOrders'), src.indexOf('async function agreementPage'));
-  assert.equal(orders.includes('data-pick'), false);
+  assert.equal(orders.includes('data-add'), false);
 });

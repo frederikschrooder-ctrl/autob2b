@@ -657,11 +657,20 @@ async function dealersPage() {
 }
 
 // ---------- dealer shop ----------
+function cartIcon(active) {
+  const on = active === '/shop/cart';
+  return `<a data-link class="cartlink${on ? ' active' : ''}" href="/shop/cart" aria-label="Kurv" ${on ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M6 7h15l-1.6 8.2a1 1 0 0 1-1 .8H8.2a1 1 0 0 1-1-.8L5.2 4H2"/><circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="17" cy="20" r="1.4" fill="currentColor"/></svg><span id="cartcount">0</span></a>`;
+}
+function setCartCount(n) {
+  const el = document.getElementById('cartcount');
+  if (el) el.textContent = String(n || 0);
+}
 function shopShell(active, inner, unread = 0) {
-  const nav = [['/shop', 'Biler'], ['/shop/cart', 'Kurv'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer'], ['/account/profile', 'Profil']];
+  const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer'], ['/account/profile', 'Profil']];
   $app.innerHTML = `<header class="shopbar">${brandLink()}<nav aria-label="Forhandler">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
-   <div class="sp"><span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+   <div class="sp">${cartIcon(active)}<span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
   document.getElementById('lo').onclick = logout;
+  api('GET', '/api/shop/cart').then((r) => setCartCount(r.cart.count)).catch(() => {});
 }
 function holdPage() {
   const rej = S.user.status === 'rejected';
@@ -673,54 +682,38 @@ function holdPage() {
   document.getElementById('lo').onclick = logout;
 }
 const carImg = (v) => (v.images && v.images[0] && !v.images[0].endsWith('.heic') ? `<img src="${esc(v.images[0])}" alt="">` : '🚗');
-function selectionLabel(n) {
-  return (n === 1 ? '1 bil valgt' : n + ' biler valgt') + ' – Tilføj til kurv';
+function cardCartAction(v, inCart) {
+  const details = btnLink('/shop/vehicles/' + v.id, 'Se detaljer', 'small');
+  if (!inCart) return `<div class="vactions">${details}<button type="button" class="btn small" data-add="${v.id}">Tilføj til kurv</button></div>`;
+  return `<div class="vactions">${details}<span class="in-cart">I kurven</span><button type="button" class="btn small outline" data-drop="${v.id}" aria-label="Fjern ${esc(v.make)} ${esc(v.model)} fra kurven">Fjern</button></div>`;
 }
 async function shopHome() {
-  shopShell('/shop', `<div class="pagehead"><h1>Biler</h1><div id="cartlink"></div></div><div id="nt"></div>
-   <div class="filters"><input id="q" placeholder="Søg mærke eller model…"><select id="fu"><option value="">Alle brændstoftyper</option>${Object.entries(L.fuel).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div><div id="msg"></div><div id="lst"></div>
-   <div class="cartbar" id="cartbar" hidden><button type="button" class="btn" id="addtocart">${selectionLabel(0)}</button></div>`);
-  const picked = new Set();
-  const paintBar = () => {
-    const n = picked.size;
-    const bar = sel('#cartbar');
-    const btn = sel('#addtocart');
-    if (!bar || !btn) return;
-    bar.hidden = n === 0;
-    btn.textContent = selectionLabel(n);
-    const main = document.querySelector('.shopmain');
-    if (main) main.style.paddingBottom = n ? '6.5rem' : '';
-  };
+  shopShell('/shop', `<div class="pagehead"><h1>Biler</h1></div><div id="nt"></div>
+   <div class="filters"><input id="q" placeholder="Søg mærke eller model…"><select id="fu"><option value="">Alle brændstoftyper</option>${Object.entries(L.fuel).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div><div id="msg"></div><div id="lst"></div>`);
   try {
     const n = (await api('GET', '/api/shop/notifications')).notifications.filter((x) => !x.read);
     if (n.length) { sel('#nt').innerHTML = `<div class="notice">${n.map((x) => `🔔 ${link(x.link || '/shop/packages', esc(x.message))}`).join('<br>')} <button class="btn small outline" id="mr" style="margin-left:.6rem">Marker som læst</button></div>`; sel('#mr').onclick = async () => { await api('POST', '/api/shop/notifications/read', {}); sel('#nt').innerHTML = ''; }; }
-  } catch {}
-  try {
-    const cart = (await api('GET', '/api/shop/cart')).cart;
-    if (cart.count && sel('#cartlink')) sel('#cartlink').innerHTML = link('/shop/cart', 'Kurv (' + cart.count + ')');
   } catch {}
   const load = async () => {
     if (!sel('#q')) return;
     const p = new URLSearchParams(); if (sel('#q').value) p.set('q', sel('#q').value); if (sel('#fu').value) p.set('fuel', sel('#fu').value);
     try {
-      const r = await api('GET', '/api/shop/vehicles?' + p);
-      sel('#lst').innerHTML = r.vehicles.length ? `<div class="vgrid">${r.vehicles.map((v) => `<div class="vcard"><div class="img">${carImg(v)}</div><div class="bd"><label class="vpick"><input type="checkbox" data-pick="${v.id}" ${picked.has(v.id) ? 'checked' : ''} aria-label="Vælg ${esc(v.make)} ${esc(v.model)}"> Vælg</label><h3>${esc(v.make)} ${esc(v.model)}</h3><div class="vsub">${esc(v.variant || '')}</div><div class="vmeta">${[v.first_registration ? v.first_registration.slice(0, 4) : '', v.mileage != null ? num(v.mileage) + ' km' : '', L.fuel[v.fuel] || ''].filter(Boolean).join(' · ')}</div><div class="price">${dkk(v.price)} <small>ekskl. moms</small></div>${btnLink('/shop/vehicles/' + v.id, 'Se detaljer', 'small')}</div></div>`).join('')}</div>` : '<div class="empty">Der er ingen tilgængelige biler lige nu.</div>';
-      paintBar();
+      const [r, cart] = await Promise.all([api('GET', '/api/shop/vehicles?' + p), api('GET', '/api/shop/cart')]);
+      const chosen = new Set(cart.cart.vehicles.map((v) => v.id));
+      setCartCount(cart.cart.count);
+      sel('#lst').innerHTML = r.vehicles.length ? `<div class="vgrid">${r.vehicles.map((v) => `<div class="vcard"><div class="img">${carImg(v)}</div><div class="bd"><h3>${esc(v.make)} ${esc(v.model)}</h3><div class="vsub">${esc(v.variant || '')}</div><div class="vmeta">${[v.first_registration ? v.first_registration.slice(0, 4) : '', v.mileage != null ? num(v.mileage) + ' km' : '', L.fuel[v.fuel] || ''].filter(Boolean).join(' · ')}</div><div class="price">${dkk(v.price)} <small>ekskl. moms</small></div>${cardCartAction(v, chosen.has(v.id))}</div></div>`).join('')}</div>` : '<div class="empty">Der er ingen tilgængelige biler lige nu.</div>';
     } catch (e) { showErr(sel('#msg'), e); }
   };
-  sel('#lst').addEventListener('change', (e) => {
-    const box = e.target.closest('[data-pick]');
-    if (!box) return;
-    const id = Number(box.dataset.pick);
-    if (box.checked) picked.add(id); else picked.delete(id);
-    paintBar();
+  sel('#lst').addEventListener('click', async (e) => {
+    const add = e.target.closest('[data-add]');
+    const drop = e.target.closest('[data-drop]');
+    try {
+      if (add) await api('POST', '/api/shop/cart', { vehicle_ids: [Number(add.dataset.add)] });
+      else if (drop) await api('DELETE', '/api/shop/cart/vehicles/' + drop.dataset.drop);
+      else return;
+      await load();
+    } catch (err) { showErr(sel('#msg'), err); }
   });
-  sel('#addtocart').onclick = async () => {
-    const ids = [...picked];
-    if (!ids.length) return;
-    try { await api('POST', '/api/shop/cart', { vehicle_ids: ids }); go('/shop/cart'); }
-    catch (err) { showErr(sel('#msg'), err); }
-  };
   sel('#q').addEventListener('input', debounce(load)); sel('#fu').onchange = load; load();
 }
 async function shopCart() {
@@ -728,22 +721,22 @@ async function shopCart() {
   let cart;
   try { cart = (await api('GET', '/api/shop/cart')).cart; }
   catch (e) { return shopShell('/shop/cart', `<div class="err">${esc(e.message)}</div>`); }
+  setCartCount(cart.count);
   const lines = cart.vehicles.length ? cart.vehicles.map((v) => `<div class="cartline${v.available ? '' : ' unavailable'}"><div><b>${esc(v.make)} ${esc(v.model)}</b><div class="muted">${esc(v.vin)}${v.available ? '' : ' · ikke længere tilgængelig'}</div></div><div class="cartline-end"><div class="price">${dkk(v.price)} <small>ekskl. moms</small></div><button type="button" class="btn small outline" data-drop="${v.id}">Fjern</button></div></div>`).join('') : '<div class="empty">Kurven er tom.</div>';
   shopShell('/shop/cart', `<div class="pagehead"><h1>Kurv</h1>${link('/shop', '← Biler')}</div><div id="msg"></div>${lines}
-    ${cart.count ? `<div class="formcard"><p>Pris ekskl. moms: <b>${dkk(cart.price_excl_vat)}</b></p><p>Moms (${cart.vat_rate * 100}%): <b>${dkk(cart.vat)}</b></p><p>I alt inkl. moms: <b>${dkk(cart.total_incl_vat)}</b></p><p class="archive-actions"><button type="button" class="btn outline" id="rs">Reserver i 24 timer</button><button type="button" class="btn" id="by">Køb nu</button></p></div>` : ''}`);
+    ${cart.count ? `<div class="formcard"><p>Pris ekskl. moms: <b>${dkk(cart.price_excl_vat)}</b></p><p>Moms (${cart.vat_rate * 100}%): <b>${dkk(cart.vat)}</b></p><p>I alt inkl. moms: <b>${dkk(cart.total_incl_vat)}</b></p><p><button type="button" class="btn" id="bestil">Bestil samlet</button></p></div>` : ''}`);
+  setCartCount(cart.count);
   document.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
     try { await api('DELETE', '/api/shop/cart/vehicles/' + b.dataset.drop); shopCart(); }
     catch (err) { showErr(sel('#msg'), err); }
   }));
-  const act = async (kind, q) => {
-    if (!confirm(q)) return;
+  if (sel('#bestil')) sel('#bestil').onclick = async () => {
+    if (!confirm('Bestil bilerne samlet? Der oprettes én ordre og én købsaftale.')) return;
     try {
-      const o = (await api('POST', '/api/shop/cart/' + kind, {})).order;
-      go(kind === 'buy' ? '/agreement/' + o.id : '/shop/orders');
+      const o = (await api('POST', '/api/shop/cart/buy', {})).order;
+      go('/agreement/' + o.id);
     } catch (err) { showErr(sel('#msg'), err); }
   };
-  if (sel('#rs')) sel('#rs').onclick = () => act('reserve', 'Reserver bilerne i kurven i 24 timer?');
-  if (sel('#by')) sel('#by').onclick = () => act('buy', 'Køb bilerne i kurven nu? Der genereres én bindende købsaftale.');
 }
 async function shopVehicle(id) {
   shopShell('/shop', '<p>Indlæser…</p>');
