@@ -126,6 +126,24 @@ label{display:block;font-weight:600;font-size:.8rem;letter-spacing:.01em;color:v
 .archive-actions .btn.danger:hover{background:#a93226;border-color:#a93226;color:#ffffff}
 .archive-actions .btn.danger:disabled{background:#fef2f2;border-color:var(--red-line);color:var(--red-ink)}
 table{border-collapse:collapse;width:100%;font-size:.92rem}
+@media(min-width:701px){
+  table.dealers{table-layout:fixed}
+  table.dealers th,table.dealers td{padding:.55rem .35rem}
+  table.dealers th{white-space:normal;letter-spacing:.02em}
+  table.dealers td{overflow-wrap:break-word}
+  table.dealers td.act{overflow-wrap:normal;white-space:normal}
+  table.dealers td.act .btn{margin:.12rem .12rem 0 0}
+  table.dealers td.act .btn.small{padding:.45rem .55rem}
+  table.dealers th:nth-child(1){width:12%}
+  table.dealers th:nth-child(2){width:10%}
+  table.dealers th:nth-child(3){width:8%}
+  table.dealers th:nth-child(4){width:11%}
+  table.dealers th:nth-child(5){width:15%}
+  table.dealers th:nth-child(6){width:12%}
+  table.dealers th:nth-child(7){width:12%}
+  table.dealers th:nth-child(8){width:9%}
+  table.dealers th:nth-child(9){width:11%}
+}
 th{background:var(--slate-wash);text-align:left;padding:.75rem .85rem;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate-700);white-space:nowrap}
 td{padding:.75rem .85rem;border-top:1px solid var(--b);vertical-align:middle}
 td.act{min-width:150px}td.act>*{margin:0 .3rem .3rem 0}

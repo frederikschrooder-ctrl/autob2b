@@ -16,7 +16,7 @@ function openDb(file) {
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('admin','dealer')),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
-    company_name TEXT, cvr TEXT, city TEXT, phone TEXT,
+    company_name TEXT, cvr TEXT, city TEXT, phone TEXT, last_seen_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -99,6 +99,7 @@ function openDb(file) {
   if (!vehicleCols.includes('purged_at')) db.exec('ALTER TABLE vehicles ADD COLUMN purged_at TEXT');
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!userCols.includes('phone')) db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
+  if (!userCols.includes('last_seen_at')) db.exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
   addOrderCol('purged_at', 'ALTER TABLE orders ADD COLUMN purged_at TEXT');
   db.exec(`CREATE TABLE IF NOT EXISTS vehicle_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

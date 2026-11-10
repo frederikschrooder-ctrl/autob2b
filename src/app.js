@@ -267,7 +267,7 @@ function createApp(opts = {}) {
     const token = A.parseCookies(req.headers.cookie).sid;
     req.sessionToken = token;
     req.user = A.userFromToken(db, token);
-    if (req.method === 'GET' || !req.path.startsWith('/')) { /* no-op */ }
+    if (req.user && req.path !== '/auth/login') noteSeen(req.user.id);
     next();
   });
   const requireAuth = (req, res, next) => (req.user ? next() : res.status(401).json({ error: 'Du skal være logget ind' }));
@@ -286,6 +286,20 @@ function createApp(opts = {}) {
   const idParam = (req) => { const n = Number(req.params.id); if (!Number.isInteger(n) || n < 1) throw new HttpError(404, 'Ikke fundet'); return n; };
 
   const publicUser = (u) => u && ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, company_name: u.company_name, cvr: u.cvr, city: u.city, phone: u.phone || null, password_min_length: minLengthForRole(u.role) });
+  const SEEN_MS = 5 * 60 * 1000;
+  const seenWrite = new Map();
+  const noteSeen = (userId, force = false) => {
+    const t = now();
+    const cached = seenWrite.get(userId);
+    if (!force && cached != null && t - cached < SEEN_MS) return;
+    if (!force) {
+      const row = db.prepare('SELECT last_seen_at FROM users WHERE id=?').get(userId);
+      const prev = row && row.last_seen_at ? Date.parse(row.last_seen_at) : NaN;
+      if (Number.isFinite(prev) && t - prev < SEEN_MS) { seenWrite.set(userId, prev); return; }
+    }
+    db.prepare('UPDATE users SET last_seen_at=? WHERE id=?').run(new Date(t).toISOString(), userId);
+    seenWrite.set(userId, t);
+  };
   function normalizePhone(raw) {
     const text = str(raw, { required: true, max: 40, field: 'Mobilnummer' });
     const compact = text.replace(/[\s.-]/g, '');
@@ -316,6 +330,7 @@ function createApp(opts = {}) {
       return res.status(401).json({ error: 'Forkert e-mail eller adgangskode' });
     }
     attempts.delete(key);
+    noteSeen(u.id, true);
     const token = A.createSession(db, u.id);
     res.cookie('sid', token, { ...cookieBase(), maxAge: A.SESSION_MS });
     res.json({ user: publicUser(u) });
@@ -913,7 +928,7 @@ function createApp(opts = {}) {
 
   // ---------- admin: dealers / admins ----------
   app.get('/api/admin/dealers', requireAdmin, wrap((req, res) => {
-    const rows = db.prepare(`SELECT id,email,name,company_name,cvr,city,phone,status,created_at FROM users WHERE role='dealer' ORDER BY id DESC`).all();
+    const rows = db.prepare(`SELECT id,email,name,company_name,cvr,city,phone,status,created_at,last_seen_at FROM users WHERE role='dealer' ORDER BY id DESC`).all();
     res.json({ dealers: rows });
   }));
   app.put('/api/admin/dealers/:id', requireAdmin, wrap((req, res) => {

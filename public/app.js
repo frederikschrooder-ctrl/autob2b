@@ -20,6 +20,13 @@ function sellerBlock(seller) {
 const dkk = (n) => new Intl.NumberFormat('da-DK').format(n ?? 0) + ' DKK';
 const num = (n) => new Intl.NumberFormat('da-DK').format(n ?? 0);
 const dt = (s) => (s ? new Date(s).toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', dateStyle: 'short', timeStyle: 'short' }) : '—');
+function sidstAktiv(iso) {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return 'Aldrig';
+  const parts = new Intl.DateTimeFormat('da-DK', { timeZone: 'Europe/Copenhagen', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(t));
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return `${get('day')}. ${get('month')} ${get('year')} kl. ${get('hour')}:${get('minute')}`;
+}
 const L = {
   vstatus: { available: 'Tilgængelig', reserved: 'Reserveret', sold: 'Solgt', unavailable: 'Ikke tilgængelig' },
   ostatus: { pending: 'Afventende', confirmed: 'Bekræftet', completed: 'Gennemført', cancelled: 'Annulleret', expired: 'Udløbet' },
@@ -634,25 +641,32 @@ async function orderEdit(id) {
 async function dealersPage() {
   adminShell('/dashboard/dealers', '<h1>Indlæser…</h1>');
   const { dealers } = await api('GET', '/api/admin/dealers');
-  const sect = (title, st, rows, acts) => `<h2>${title} (${rows.length})</h2>${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>Mobilnummer</th><th>E-mail</th><th>Ansøgt</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${rows.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('Mobilnummer', d.phone ? telLink(d.phone) : '—')}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
-  const by = (s) => dealers.filter((d) => d.status === s);
-  adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1></div><div id="msg"></div>
-    ${sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
-    ${sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
-    ${sect('Afviste', 'rejected', by('rejected'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button>`)}
-    <form id="af" class="formcard" novalidate><h2>Tilføj Administrator</h2><p class="muted" style="margin-top:0">Kun administratorer kan oprette nye administratorer.</p>
-      <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 4 tegn)</label><input type="password" name="password" minlength="4" required autocomplete="new-password"></div></div>
-      <button class="btn" style="margin-top:1rem">Opret Administrator</button><div id="am"></div></form>`);
-  document.querySelector('.main').addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-a]'); if (!b) return;
-    try { await api('POST', `/api/admin/dealers/${b.dataset.id}/${b.dataset.a}`, {}); dealersPage(); } catch (err) { showErr(sel('#msg'), err); }
-  });
-  sel('#af').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fields = Object.fromEntries(new FormData(e.target));
-    if (String(fields.password || '').length < 4) return showErr(sel('#am'), new Error('Adgangskoden skal være mindst 4 tegn'));
-    try { const r = await api('POST', '/api/admin/admins', fields); e.target.reset(); sel('#am').innerHTML = `<div class="ok">Administrator ${esc(r.admin.email)} er oprettet.</div>`; } catch (err) { showErr(sel('#am'), err); }
-  });
+  let seenFirst = false;
+  const paint = () => {
+    const rows = seenFirst ? [...dealers].sort((a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')) || b.id - a.id) : dealers;
+    const seenCell = (d) => esc(sidstAktiv(d.last_seen_at)).replace(' kl. ', '<br>kl. ');
+    const sect = (title, st, list, acts) => `<h2>${title} (${list.length})</h2>${list.length ? `<div class="tablewrap"><table class="dealers"><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>Mobilnummer</th><th>E-mail</th><th>Ansøgt</th><th>Sidst aktiv</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${list.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('Mobilnummer', d.phone ? telLink(d.phone) : '—')}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Sidst aktiv', seenCell(d))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
+    const by = (s) => rows.filter((d) => d.status === s);
+    adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1><button type="button" class="btn small outline" id="sortseen" aria-pressed="${seenFirst ? 'true' : 'false'}">${seenFirst ? 'Nyeste ansøgninger først' : 'Sidst aktiv først'}</button></div><div id="msg"></div>
+      ${sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
+      ${sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
+      ${sect('Afviste', 'rejected', by('rejected'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button>`)}
+      <form id="af" class="formcard" novalidate><h2>Tilføj Administrator</h2><p class="muted" style="margin-top:0">Kun administratorer kan oprette nye administratorer.</p>
+        <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 4 tegn)</label><input type="password" name="password" minlength="4" required autocomplete="new-password"></div></div>
+        <button class="btn" style="margin-top:1rem">Opret Administrator</button><div id="am"></div></form>`);
+    document.querySelector('.main').addEventListener('click', async (e) => {
+      if (e.target.closest('#sortseen')) { seenFirst = !seenFirst; paint(); return; }
+      const b = e.target.closest('[data-a]'); if (!b) return;
+      try { await api('POST', `/api/admin/dealers/${b.dataset.id}/${b.dataset.a}`, {}); dealersPage(); } catch (err) { showErr(sel('#msg'), err); }
+    });
+    sel('#af').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fields = Object.fromEntries(new FormData(e.target));
+      if (String(fields.password || '').length < 4) return showErr(sel('#am'), new Error('Adgangskoden skal være mindst 4 tegn'));
+      try { const r = await api('POST', '/api/admin/admins', fields); e.target.reset(); sel('#am').innerHTML = `<div class="ok">Administrator ${esc(r.admin.email)} er oprettet.</div>`; } catch (err) { showErr(sel('#am'), err); }
+    });
+  };
+  paint();
 }
 
 // ---------- dealer shop ----------
@@ -873,6 +887,7 @@ async function dealerEdit(id) {
     <form id="f" class="formcard" novalidate>
       <p class="muted">Status ændres med Godkend og Afvis på listen. Adgangskode og rolle kan ikke ændres her.</p>
       <p>Mobilnummer: ${d.phone ? telLink(d.phone) : '—'}</p>
+      <p>Sidst aktiv: ${esc(sidstAktiv(d.last_seen_at))}</p>
       <label>Firmanavn</label><input name="company_name" required maxlength="120" value="${esc(d.company_name || '')}">
       <label>CVR</label><input name="cvr" required maxlength="20" value="${esc(d.cvr || '')}">
       <label>By</label><input name="city" required maxlength="80" value="${esc(d.city || '')}">
