@@ -55,9 +55,8 @@ function brandHome() {
 }
 function brandLink() {
   const label = esc(BRAND_MARK);
-  const badge = esc(BRAND.charAt(0));
   const word = esc(BRAND_MARK);
-  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 268 52" role="img" aria-label="${label}" text-rendering="geometricPrecision" shape-rendering="geometricPrecision"><title>${label}</title><defs><radialGradient id="hbg-badge" cx="50%" cy="46%" r="68%"><stop offset="0" stop-color="#6abf4b" stop-opacity="0.22"/><stop offset="0.7" stop-color="#6abf4b" stop-opacity="0.08"/><stop offset="1" stop-color="#6abf4b" stop-opacity="0"/></radialGradient><linearGradient id="hbg-word" x1="50" y1="0" x2="258" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fafffe"/><stop offset="0.68" stop-color="#fafffe"/><stop offset="1" stop-color="#e7f6e3"/></linearGradient></defs><circle cx="24" cy="26" r="18" fill="url(#hbg-badge)"/><text x="24" y="32.5" text-anchor="middle" fill="#fafffe" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">${badge}</text><text x="50" y="34" fill="url(#hbg-word)" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">${word}</text></svg></a>`;
+  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 196 52" role="img" aria-label="${label}" text-rendering="geometricPrecision" shape-rendering="geometricPrecision"><title>${label}</title><defs><linearGradient id="hbg-word" x1="6" y1="0" x2="214" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fafffe"/><stop offset="0.68" stop-color="#fafffe"/><stop offset="1" stop-color="#e7f6e3"/></linearGradient></defs><text x="6" y="34" fill="url(#hbg-word)" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">${word}</text></svg></a>`;
 }
 const btnLink = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="btn ${cls}">${text}</a>`;
 const showErr = (el, e) => { el.innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
