@@ -56,8 +56,8 @@ function brandHome() {
 function brandLink() {
   const label = esc(BRAND_MARK);
   const badge = esc(BRAND.charAt(0));
-  const word = esc(BRAND.slice(1) + ' B2B');
-  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 268 52" role="img" aria-label="${label}" text-rendering="geometricPrecision" shape-rendering="geometricPrecision"><title>${label}</title><defs><radialGradient id="hbg-badge" cx="50%" cy="46%" r="68%"><stop offset="0" stop-color="#6abf4b" stop-opacity="0.22"/><stop offset="0.7" stop-color="#6abf4b" stop-opacity="0.08"/><stop offset="1" stop-color="#6abf4b" stop-opacity="0"/></radialGradient><linearGradient id="hbg-car" x1="58" y1="0" x2="260" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8d939a" stop-opacity="0"/><stop offset="0.14" stop-color="#8d939a" stop-opacity="0.38"/><stop offset="0.86" stop-color="#8d939a" stop-opacity="0.38"/><stop offset="1" stop-color="#8d939a" stop-opacity="0"/></linearGradient><linearGradient id="hbg-word" x1="50" y1="0" x2="258" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#454b52"/><stop offset="0.68" stop-color="#454b52"/><stop offset="1" stop-color="#2f6e20"/></linearGradient></defs><path class="brand-car" d="M62 36c22-1 36-13 68-15 32-2 66 0 92 7 12 3 22 5 28 6" fill="none" stroke="url(#hbg-car)" stroke-width="1.2" stroke-linecap="round"/><circle cx="24" cy="26" r="18" fill="url(#hbg-badge)"/><text x="24" y="32.5" text-anchor="middle" fill="#2f6e20" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">${badge}</text><text x="50" y="34" fill="url(#hbg-word)" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">${word}</text></svg></a>`;
+  const name = esc(BRAND.slice(1));
+  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 268 52" role="img" aria-label="${label}" text-rendering="geometricPrecision" shape-rendering="geometricPrecision"><title>${label}</title><defs><radialGradient id="hbg-badge" cx="50%" cy="46%" r="70%"><stop offset="0" stop-color="#fafffe" stop-opacity="0.2"/><stop offset="1" stop-color="#fafffe" stop-opacity="0"/></radialGradient><linearGradient id="hbg-car" x1="58" y1="0" x2="260" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fafffe" stop-opacity="0"/><stop offset="0.16" stop-color="#fafffe" stop-opacity="0.28"/><stop offset="0.84" stop-color="#fafffe" stop-opacity="0.28"/><stop offset="1" stop-color="#fafffe" stop-opacity="0"/></linearGradient></defs><path class="brand-car" d="M62 36c22-1 36-13 68-15 32-2 66 0 92 7 12 3 22 5 28 6" fill="none" stroke="url(#hbg-car)" stroke-width="1.2" stroke-linecap="round"/><circle cx="24" cy="26" r="18" fill="url(#hbg-badge)" stroke="#6cb757" stroke-opacity="0.85" stroke-width="1.4"/><text x="24" y="32.5" text-anchor="middle" fill="#fafffe" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">${badge}</text><text x="50" y="34" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700"><tspan fill="#fafffe">${name}</tspan><tspan fill="#6cb757"> B2B</tspan></text></svg></a>`;
 }
 const btnLink = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="btn ${cls}">${text}</a>`;
 const showErr = (el, e) => { el.innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
@@ -66,6 +66,7 @@ async function logout() { try { await api('POST', '/api/auth/logout', {}); } cat
 // ---------- landing ----------
 function landing() {
   $app.innerHTML = `
+  <header class="banner hero-banner">
   <div class="topbar">${brandLink()}<div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
   <section class="hero">
     <div class="badge">Lukket B2B Platform — Kun for Forhandlere</div>
@@ -73,6 +74,7 @@ function landing() {
     <p>Køb kvalitetsbiler direkte til engrospriser – enkeltvis eller i partier. Adgang kræver en godkendt forhandlerkonto.</p>
     <div class="row">${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}${btnLink('/login', 'Log Ind', 'big outline')}</div>
   </section>
+  </header>
   <section class="section"><h2>Hvad Vi Tilbyder</h2>
     <div class="cards">
       <div class="card"><h3>Enkeltbiler</h3><p>Gennemse vores udvalg af importerede biler fra Tyskland med fuld specifikation, billeder og tilstandsrapport. Alle priser er engrospriser ekskl. moms.</p></div>
@@ -91,8 +93,7 @@ function landing() {
 // ---------- auth ----------
 function authPage(kind) {
   const isLogin = kind === 'login';
-  $app.innerHTML = `<div class="authwrap"><form class="authbox" id="f" novalidate>
-    ${brandLink()}
+  $app.innerHTML = `<div class="authpage"><header class="banner hero-banner auth-banner">${brandLink()}</header><div class="authwrap"><form class="authbox" id="f" novalidate>
     <h1>${isLogin ? 'Log ind' : 'Ansøg om Forhandlerkonto'}</h1>
     <p class="muted">${isLogin ? 'Administratorer og forhandlere bruger samme login.' : 'Udfyld oplysningerne – vi godkender din ansøgning manuelt.'}</p>
     <div id="msg"></div>
@@ -104,7 +105,7 @@ function authPage(kind) {
     ${isLogin ? '' : '<div class="muted" style="font-size:.8rem">Mindst 4 tegn.</div>'}
     <button class="btn" type="submit">${isLogin ? 'Log Ind' : 'Send Ansøgning'}</button>
     <div class="links">${isLogin ? link('/register', 'Ansøg om forhandlerkonto') : link('/login', 'Har du allerede en konto? Log ind')}${link('/', '← Tilbage')}</div>
-  </form></div>`;
+  </form></div></div>`;
   document.getElementById('f').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target; const msg = document.getElementById('msg'); const btn = f.querySelector('button');
