@@ -72,7 +72,7 @@ function landing() {
     <div class="badge">Lukket B2B Platform — Kun for Forhandlere</div>
     <h1>Premium Importerede Biler Fra Tyskland til Danmark</h1>
     <p>Køb kvalitetsbiler direkte til engrospriser – enkeltvis eller i partier. Adgang kræver en godkendt forhandlerkonto.</p>
-    <div class="row">${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}${btnLink('/login', 'Log Ind', 'big outline')}</div>
+    <div class="row">${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big apply')}${btnLink('/login', 'Log Ind', 'big outline')}</div>
   </section>
   </header>
   <section class="section"><h2>Hvad Vi Tilbyder</h2>
@@ -104,7 +104,7 @@ function authPage(kind) {
     <label>Adgangskode</label><input type="password" name="password" required autocomplete="${isLogin ? 'current-password' : 'new-password'}" ${isLogin ? '' : 'minlength="4"'}>
     ${isLogin ? '' : '<div class="muted" style="font-size:.8rem">Mindst 4 tegn.</div>'}
     <button class="btn" type="submit">${isLogin ? 'Log Ind' : 'Send Ansøgning'}</button>
-    <div class="links">${isLogin ? link('/register', 'Ansøg om forhandlerkonto') : link('/login', 'Har du allerede en konto? Log ind')}${link('/', '← Tilbage')}</div>
+    <div class="links">${isLogin ? link('/register', 'Ansøg om forhandlerkonto', 'apply') : link('/login', 'Har du allerede en konto? Log ind')}${link('/', '← Tilbage')}</div>
   </form></div></div>`;
   document.getElementById('f').addEventListener('submit', async (e) => {
     e.preventDefault();
