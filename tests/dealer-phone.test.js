@@ -105,6 +105,11 @@ test('registration requires a phone, the dealer can change only their own, and a
     assert.deepEqual(order.json.order.agreement, JSON.parse(stored));
     const orders = await send(live.base, 'GET', '/api/admin/orders', admin);
     assert.equal(orders.json.orders.find((o) => o.id === bought.json.order.id).dealer.phone, '+45 98 76 54 32');
+    const ownShop = await send(live.base, 'GET', '/api/shop/orders', a);
+    assert.equal(JSON.stringify(ownShop.json).includes('+45 98 76 54 32'), false);
+    const otherShop = await send(live.base, 'GET', '/api/shop/orders', b);
+    assert.equal(JSON.stringify(otherShop.json).includes('+45 98 76 54 32'), false);
+    assert.equal((await send(live.base, 'GET', '/api/admin/orders', b)).status, 403);
     const hidden = await send(live.base, 'GET', '/api/orders/' + bought.json.order.id, b);
     assert.equal(hidden.status, 404);
     assert.equal(JSON.stringify(hidden.json).includes('11 22 33 44'), false);

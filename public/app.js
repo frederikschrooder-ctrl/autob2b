@@ -453,8 +453,14 @@ function ordersTable(orders, mode) {
     const status = full ? `${o.status === 'pending' ? `<button type="button" class="btn small" data-act="confirm" data-id="${o.id}">Bekræft</button>` : ''}${o.status === 'confirmed' ? `<button type="button" class="btn small" data-act="complete" data-id="${o.id}">Gennemfør</button>` : ''}${['pending', 'confirmed'].includes(o.status) ? `<button type="button" class="btn small danger" data-act="cancel" data-id="${o.id}" aria-label="Annuller ordre ${o.id}">Annuller</button>` : ''}${o.has_agreement ? btnLink('/agreement/' + o.id, 'Aftale', 'small outline') : ''}` : '';
     return status + edit + `<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button>`;
   };
-  return `<div class="tablewrap"><table><thead><tr><th>#</th><th>Forhandler</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Udløber</th>${actions ? '<th>Handlinger</th>' : ''}</tr></thead><tbody>
-  ${orders.map((o) => `<tr>${cell('#', o.id)}${cell('Forhandler', `${esc(o.dealer?.company_name || '—')}${o.dealer?.phone ? `<div>${telLink(o.dealer.phone)}</div>` : ''}`)}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Udløber', o.status === 'pending' && !o.archived_at ? dt(o.expires_at) : '—')}
+  const mobile = (o) => {
+    const stored = o.phone != null && String(o.phone).trim() !== '' ? String(o.phone).trim() : '';
+    const dealerPhone = o.dealer && o.dealer.phone != null && String(o.dealer.phone).trim() !== '' ? String(o.dealer.phone).trim() : '';
+    const phone = stored || dealerPhone;
+    return phone ? telLink(phone) : '<span class="muted">–</span>';
+  };
+  return `<div class="tablewrap"><table><thead><tr><th>#</th><th>Forhandler</th><th>Mobilnummer</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Udløber</th>${actions ? '<th>Handlinger</th>' : ''}</tr></thead><tbody>
+  ${orders.map((o) => `<tr>${cell('#', o.id)}${cell('Forhandler', esc(o.dealer?.company_name || '—'))}${cell('Mobilnummer', mobile(o))}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Udløber', o.status === 'pending' && !o.archived_at ? dt(o.expires_at) : '—')}
   ${actions ? cell('Handlinger', buttons(o), 'act') : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 async function ordersPage() {
