@@ -993,6 +993,7 @@ function createApp(opts = {}) {
           const v = getVehicle(id); if (!v) throw new HttpError(404, 'Bilen findes ikke');
           const mine = kind === 'buy' ? myHold(id, req.user.id) : null;
           if (saleLocked(id) || lockingOrder(id, mine ? mine.id : 0)) throw new HttpError(409, 'Bilen er ikke længere tilgængelig');
+          if (mine && orderVehicles(mine.id).length > 1) throw new HttpError(409, 'Bilen indgår i en samlet reservation. Køb den samlet fra Mine ordrer, eller annuller reservationen.');
           if (mine) { // convert own reservation into a purchase
             const claimed = db.prepare(`UPDATE orders SET kind='buy', status='confirmed', expires_at=NULL, price=? WHERE id=? AND dealer_id=? AND status='pending' AND kind='reserve'`).run(v.price, mine.id, req.user.id);
             if (claimed.changes !== 1) throw new HttpError(409, 'Reservationen kan ikke længere omsættes til køb');
@@ -1027,6 +1028,112 @@ function createApp(opts = {}) {
       res.status(201).json({ order: orderOut(db.prepare('SELECT * FROM orders WHERE id=?').get(orderId), { withAgreement: true }) });
     });
   }
+  function carRefusalName(v) {
+    if (!v || !v.make) return 'bil #' + (v && v.id ? v.id : '?');
+    return vehicleLabel(v) + (v.vin ? ' (' + v.vin + ')' : '');
+  }
+  function unavailableCarsMessage(rows) {
+    const names = rows.map(carRefusalName);
+    if (names.length === 1) return 'Bilen er ikke længere tilgængelig: ' + names[0] + '.';
+    return 'Disse biler er ikke længere tilgængelige: ' + names.join(', ') + '.';
+  }
+  function carIsFree(v) {
+    return !!(v && v.status === 'available' && !v.archived_at && !v.purged_at && !lockingOrder(v.id));
+  }
+  function cartRow(dealerId) {
+    return db.prepare('SELECT * FROM carts WHERE dealer_id=?').get(dealerId);
+  }
+  function cartVehicleRows(cartId) {
+    return db.prepare('SELECT v.* FROM cart_vehicles cv JOIN vehicles v ON v.id=cv.vehicle_id WHERE cv.cart_id=? ORDER BY v.id').all(cartId);
+  }
+  function cartOut(dealerId) {
+    const cart = cartRow(dealerId);
+    if (!cart) return { vehicles: [], count: 0, price_excl_vat: 0, vat: 0, vat_rate: VAT_RATE, total_incl_vat: 0 };
+    const vehicles = cartVehicleRows(cart.id).map((v) => ({ ...vehicleOut(v), available: carIsFree(v) }));
+    const price = vehicles.reduce((sum, v) => sum + v.price, 0);
+    const vat = Math.round(price * VAT_RATE);
+    return { id: cart.id, vehicles, count: vehicles.length, price_excl_vat: price, vat, vat_rate: VAT_RATE, total_incl_vat: price + vat };
+  }
+  function ensureCart(dealerId) {
+    db.prepare('INSERT OR IGNORE INTO carts (dealer_id, created_at) VALUES (?,?)').run(dealerId, new Date(now()).toISOString());
+    return cartRow(dealerId);
+  }
+  function multiLabel(cars) {
+    if (cars.length === 1) return vehicleLabel(cars[0]);
+    const joined = cars.map(vehicleLabel).join(', ');
+    return joined.length <= 200 ? joined : cars.length + ' biler';
+  }
+  function checkoutCart(dealer, kind) {
+    if (kind === 'buy') requireSeller();
+    return tx(() => {
+      const cart = cartRow(dealer.id);
+      const ids = cart ? cartVehicleRows(cart.id) : [];
+      if (!cart || !ids.length) throw new HttpError(409, 'Kurven er tom');
+      const bad = [];
+      const cars = [];
+      for (const row of ids) {
+        const current = db.prepare('SELECT * FROM vehicles WHERE id=?').get(row.id);
+        if (!carIsFree(current)) bad.push(current || row);
+        else cars.push(current);
+      }
+      if (bad.length) throw new HttpError(409, unavailableCarsMessage(bad));
+      const price = cars.reduce((sum, car) => sum + car.price, 0);
+      const expires = kind === 'reserve' ? new Date(now() + RESERVE_MS).toISOString() : null;
+      const status = kind === 'reserve' ? 'pending' : 'confirmed';
+      const inserted = db.prepare(`INSERT INTO orders (dealer_id,vehicle_id,package_id,kind,status,price,item_label,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .run(dealer.id, cars.length === 1 ? cars[0].id : null, null, kind, status, price, multiLabel(cars), expires, new Date(now()).toISOString());
+      const orderId = Number(inserted.lastInsertRowid);
+      for (const car of cars) db.prepare('INSERT INTO order_vehicles (order_id,vehicle_id) VALUES (?,?)').run(orderId, car.id);
+      const order = db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
+      if (kind === 'buy') db.prepare('UPDATE orders SET agreement=? WHERE id=?').run(JSON.stringify(buildAgreement(order, dealer, cars)), orderId);
+      const nextStatus = kind === 'buy' ? 'sold' : 'reserved';
+      const claim = db.prepare(`UPDATE vehicles SET status=? WHERE id=? AND status='available'`);
+      for (const car of cars) {
+        if (claim.run(nextStatus, car.id).changes !== 1) throw new HttpError(409, unavailableCarsMessage([car]));
+      }
+      db.prepare('DELETE FROM carts WHERE id=?').run(cart.id);
+      return orderId;
+    });
+  }
+  app.get('/api/shop/cart', requireDealer, wrap((req, res) => {
+    expireOrders();
+    res.json({ cart: cartOut(req.user.id) });
+  }));
+  app.post('/api/shop/cart', requireDealer, wrap((req, res) => {
+    expireOrders();
+    const raw = (req.body || {}).vehicle_ids;
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > 30) throw bad('Vælg mindst én bil');
+    const ids = [...new Set(raw.map(Number))];
+    if (ids.some((id) => !Number.isInteger(id) || id < 1)) throw bad('Ugyldig bil');
+    const created = tx(() => {
+      const bad = [];
+      for (const id of ids) {
+        const vehicle = db.prepare('SELECT * FROM vehicles WHERE id=?').get(id);
+        if (!carIsFree(vehicle)) bad.push(vehicle || { id });
+      }
+      if (bad.length) throw new HttpError(409, unavailableCarsMessage(bad));
+      const before = cartRow(req.user.id);
+      const cart = ensureCart(req.user.id);
+      for (const id of ids) db.prepare('INSERT OR IGNORE INTO cart_vehicles (cart_id, vehicle_id) VALUES (?,?)').run(cart.id, id);
+      return !before;
+    });
+    res.status(created ? 201 : 200).json({ cart: cartOut(req.user.id) });
+  }));
+  app.delete('/api/shop/cart/vehicles/:id', requireDealer, wrap((req, res) => {
+    const id = idParam(req);
+    const cart = cartRow(req.user.id);
+    if (!cart) throw new HttpError(404, 'Kurven er tom');
+    db.prepare('DELETE FROM cart_vehicles WHERE cart_id=? AND vehicle_id=?').run(cart.id, id);
+    if (!db.prepare('SELECT 1 FROM cart_vehicles WHERE cart_id=?').get(cart.id)) db.prepare('DELETE FROM carts WHERE id=?').run(cart.id);
+    res.json({ cart: cartOut(req.user.id) });
+  }));
+  app.post('/api/shop/cart/:action', requireDealer, wrap((req, res) => {
+    const action = req.params.action;
+    if (!['reserve', 'buy'].includes(action)) throw new HttpError(404, 'Ukendt handling');
+    expireOrders();
+    const orderId = checkoutCart(req.user, action);
+    res.status(201).json({ order: orderOut(db.prepare('SELECT * FROM orders WHERE id=?').get(orderId), { withAgreement: true }) });
+  }));
   app.post('/api/shop/vehicles/:id/reserve', requireDealer, dealerAction('reserve', 'vehicle'));
   app.post('/api/shop/vehicles/:id/buy', requireDealer, dealerAction('buy', 'vehicle'));
   app.post('/api/shop/packages/:id/reserve', requireDealer, dealerAction('reserve', 'package'));

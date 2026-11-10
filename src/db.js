@@ -106,6 +106,16 @@ function openDb(file) {
     url TEXT NOT NULL,
     position INTEGER NOT NULL
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS carts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dealer_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    created_at TEXT NOT NULL
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS cart_vehicles (
+    cart_id INTEGER NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+    PRIMARY KEY (cart_id, vehicle_id)
+  )`);
   return db;
 }
 module.exports = { openDb };
