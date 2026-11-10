@@ -174,7 +174,7 @@ async function vehiclesPage() {
       const r = await api('GET', '/api/admin/vehicles?' + p);
       sel('#cnt').textContent = `${r.count} ${r.count === 1 ? 'bil' : 'biler'}`;
       const actions = (v) => (archiveView
-        ? `<button type="button" class="btn small danger" data-purge-vehicle="${v.id}" aria-label="Slet ${esc(v.make + ' ' + v.model)}">Slet</button>`
+        ? `<span class="archive-actions"><button type="button" class="btn small" data-restore-vehicle="${v.id}" aria-label="Gendan ${esc(v.make + ' ' + v.model)}">Gendan</button><button type="button" class="btn small danger" data-purge-vehicle="${v.id}" aria-label="Slet permanent ${esc(v.make + ' ' + v.model)}">Slet permanent</button></span>`
         : `${btnLink('/dashboard/vehicles/' + v.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-del="${v.id}" data-name="${esc(v.make + ' ' + v.model + ' (' + v.vin + ')')}" aria-label="Slet ${esc(v.make + ' ' + v.model)}">Slet</button>`);
       sel('#tbl').innerHTML = r.vehicles.length ? `<div class="tablewrap"><table><thead><tr><th></th><th>VIN</th><th>Mærke / Model</th><th>Variant</th><th>Km</th><th>Brændstof</th><th>Engrospris</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>
       ${r.vehicles.map((v) => `<tr>${cell('Billede', v.images[0] ? `<img class="thumb" src="${esc(v.images[0])}" alt="">` : '<div class="thumb"></div>')}${cell('VIN', esc(v.vin))}${cell('Mærke / Model', `<b>${esc(v.make)}</b> ${esc(v.model)}`)}${cell('Variant', esc(v.variant || '—'))}${cell('Km', v.mileage != null ? num(v.mileage) : '—')}${cell('Brændstof', esc(L.fuel[v.fuel] || '—'))}${cell('Engrospris', dkk(v.price))}${cell('Status', pill(L.vstatus, v.status))}
@@ -183,6 +183,13 @@ async function vehiclesPage() {
   };
   sel('#q').addEventListener('input', debounce(load)); sel('#st').onchange = load; sel('#fu').onchange = load;
   sel('#tbl').addEventListener('click', async (e) => {
+    const restore = e.target.closest('[data-restore-vehicle]');
+    if (restore) {
+      if (!confirm('Gendan bilen? Lagerstatus og købsaftaler ændres ikke.')) return;
+      try { await api('POST', '/api/admin/vehicles/' + restore.dataset.restoreVehicle + '/restore', {}); sel('#msg').innerHTML = ''; load(); }
+      catch (err) { showErr(sel('#msg'), err); }
+      return;
+    }
     const purge = e.target.closest('[data-purge-vehicle]');
     if (purge) {
       if (!confirmPurge()) return;
@@ -294,7 +301,7 @@ async function packagesPage() {
   const archiveHtml = archivedPk.packages.length
     ? '<div class="cards">' + archivedPk.packages.map((p) => {
       const cars = p.vehicle_count === 1 ? 'bil' : 'biler';
-      return `<div class="card"><div style="display:flex;justify-content:space-between;gap:.5rem"><h3>${esc(p.name)}</h3>${pill(L.vstatus, p.effective_status)}</div><div class="price">${dkk(p.total_price)}</div><p class="muted">${esc(p.description || '')}</p><p><b>${p.vehicle_count}</b> ${cars}</p><div class="archive-actions"><button type="button" class="btn small danger" data-purge-package="${p.id}" aria-label="Slet ${esc(p.name)}">Slet</button></div></div>`;
+      return `<div class="card"><div style="display:flex;justify-content:space-between;gap:.5rem"><h3>${esc(p.name)}</h3>${pill(L.vstatus, p.effective_status)}</div><div class="price">${dkk(p.total_price)}</div><p class="muted">${esc(p.description || '')}</p><p><b>${p.vehicle_count}</b> ${cars}</p><div class="archive-actions"><button type="button" class="btn small" data-restore-package="${p.id}" aria-label="Gendan ${esc(p.name)}">Gendan</button><button type="button" class="btn small danger" data-purge-package="${p.id}" aria-label="Slet permanent ${esc(p.name)}">Slet permanent</button></div></div>`;
     }).join('') + '</div>'
     : '<div class="tablewrap"><div class="empty">Ingen arkiverede partier.</div></div>';
 
@@ -450,6 +457,12 @@ async function packagesPage() {
       if (msg) msg.scrollIntoView({ block: 'center' });
     }
   }));
+  document.querySelectorAll('[data-restore-package]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Gendan partiet? Lagerstatus og købsaftaler ændres ikke.')) return;
+    const msg = sel('#msg');
+    try { await api('POST', '/api/admin/packages/' + b.dataset.restorePackage + '/restore', {}); packagesPage(); }
+    catch (err) { showErr(msg, err); if (msg) msg.scrollIntoView({ block: 'center' }); }
+  }));
   document.querySelectorAll('[data-purge-package]').forEach((b) => b.addEventListener('click', async () => {
     if (!confirmPurge()) return;
     const msg = sel('#msg');
@@ -493,7 +506,7 @@ function ordersTable(orders, mode) {
   if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
   const buttons = (o) => {
     const edit = btnLink('/dashboard/orders/' + o.id + '/edit', 'Rediger', 'small outline');
-    if (archived) return edit + `<button type="button" class="btn small" data-restore="${o.id}" aria-label="Gendan ordre ${o.id}">Gendan</button><button type="button" class="btn small danger" data-purge-order="${o.id}" aria-label="Slet ordre ${o.id}">Slet</button>`;
+    if (archived) return edit + `<span class="archive-actions"><button type="button" class="btn small" data-restore="${o.id}" aria-label="Gendan ordre ${o.id}">Gendan</button><button type="button" class="btn small danger" data-purge-order="${o.id}" aria-label="Slet permanent ordre ${o.id}">Slet permanent</button></span>`;
     const status = full ? `${o.status === 'pending' ? `<button type="button" class="btn small" data-act="confirm" data-id="${o.id}">Bekræft</button>` : ''}${o.status === 'confirmed' ? `<button type="button" class="btn small" data-act="complete" data-id="${o.id}">Gennemfør</button>` : ''}${['pending', 'confirmed'].includes(o.status) ? `<button type="button" class="btn small danger" data-act="cancel" data-id="${o.id}" aria-label="Annuller ordre ${o.id}">Annuller</button>` : ''}${o.has_agreement ? btnLink('/agreement/' + o.id, 'Aftale', 'small outline') : ''}` : '';
     return status + edit + `<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button>`;
   };
@@ -575,7 +588,7 @@ async function orderEdit(id) {
       ${(o.corrections || []).length ? `<ul>${o.corrections.map((c) => `<li>${esc(dt(c.created_at))}: ${dkk(c.previous_price)} → ${dkk(c.new_price)} · ${esc(c.reason)}</li>`).join('')}</ul>` : ''}
       ${locked ? '' : '<button class="btn outline" type="submit">Registrer prisrettelse</button>'}
     </form>
-    <p class="archive-actions">${locked ? `<button type="button" class="btn" id="restore">Gendan</button><button type="button" class="btn danger" id="purge">Slet</button>` : `<button type="button" class="btn danger" id="archive">Slet</button>`}</p>`);
+    <p class="archive-actions">${locked ? `<button type="button" class="btn" id="restore">Gendan</button><button type="button" class="btn danger" id="purge">Slet permanent</button>` : `<button type="button" class="btn danger" id="archive">Slet</button>`}</p>`);
   const meta = sel('#meta');
   if (meta && !locked) meta.addEventListener('submit', async (e) => {
     e.preventDefault();

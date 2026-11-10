@@ -290,6 +290,39 @@ test('opening the database does not purge archived rows or rewrite an agreement'
   } finally { if (!fx.closed) { live.server.close(); fx.ctx.close(); } }
 });
 
+test('Gendan on an archived package or vehicle leaves the agreement and the sale unchanged', async () => {
+  const fx = boot();
+  const live = await listen(fx.ctx);
+  try {
+    const admin = await login(live.base, 'purge-admin@example.test', 'Purge-Admin-Pass-1');
+    const dealer = await login(live.base, 'purge-dealer@example.test', 'Purge-Dealer-Pass-1');
+    const v1 = (await send(live.base, 'POST', '/api/admin/vehicles', admin, car('PURGEVIN00000071'))).json.vehicle;
+    const v2 = (await send(live.base, 'POST', '/api/admin/vehicles', admin, car('PURGEVIN00000072'))).json.vehicle;
+    const pkg = (await send(live.base, 'POST', '/api/admin/packages', admin, { name: 'Gendan parti', total_price: 3000, vehicle_ids: [v1.id] })).json.package;
+    const bought = await send(live.base, 'POST', '/api/shop/packages/' + pkg.id + '/buy', dealer, {});
+    assert.equal(bought.status, 201);
+    const orderId = bought.json.order.id;
+    const before = fx.ctx.db.prepare('SELECT agreement, price, status, package_id FROM orders WHERE id=?').get(orderId);
+    assert.equal((await send(live.base, 'DELETE', '/api/admin/packages/' + pkg.id, admin)).json.archived, true);
+    assert.equal((await send(live.base, 'POST', '/api/admin/packages/' + pkg.id + '/restore', dealer, {})).status, 403);
+    const restored = await send(live.base, 'POST', '/api/admin/packages/' + pkg.id + '/restore', admin, {});
+    assert.equal(restored.status, 200);
+    assert.equal(fx.ctx.db.prepare('SELECT archived_at, status FROM packages WHERE id=?').get(pkg.id).archived_at, null);
+    assert.equal(fx.ctx.db.prepare('SELECT status FROM packages WHERE id=?').get(pkg.id).status, 'sold');
+    const after = fx.ctx.db.prepare('SELECT agreement, price, status, package_id FROM orders WHERE id=?').get(orderId);
+    assert.equal(after.agreement, before.agreement);
+    assert.equal(after.price, before.price);
+    assert.equal(after.status, before.status);
+    assert.equal(after.package_id, before.package_id);
+    fx.ctx.db.prepare('UPDATE vehicles SET archived_at=? WHERE id=?').run('2026-01-05T00:00:00.000Z', v2.id);
+    const vehicleBack = await send(live.base, 'POST', '/api/admin/vehicles/' + v2.id + '/restore', admin, {});
+    assert.equal(vehicleBack.status, 200);
+    assert.equal(fx.ctx.db.prepare('SELECT archived_at, status FROM vehicles WHERE id=?').get(v2.id).archived_at, null);
+    assert.equal(fx.ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(v2.id).status, 'available');
+    assert.equal((await send(live.base, 'POST', '/api/admin/vehicles/' + v1.id + '/restore', admin, {})).status, 409);
+  } finally { live.server.close(); fx.ctx.close(); }
+});
+
 test('archive screens confirm permanent delete and dealers do not get the action', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const shop = src.slice(src.indexOf('async function shopOrders'), src.indexOf('async function agreementPage'));
@@ -303,8 +336,13 @@ test('archive screens confirm permanent delete and dealers do not get the action
   assert.match(src, /<h2>Arkiv<\/h2>/);
   assert.match(src, /<option value="archived">Arkiv<\/option>/);
   assert.match(src, /archive-actions/);
+  assert.match(src, />Gendan<\/button><button[^>]*data-purge-order=[^>]*>Slet permanent<\/button>/);
+  assert.match(src, />Gendan<\/button><button[^>]*data-purge-package=[^>]*>Slet permanent<\/button>/);
+  assert.match(src, />Gendan<\/button><button[^>]*data-purge-vehicle=[^>]*>Slet permanent<\/button>/);
+  assert.match(src, /id="restore">Gendan<\/button><button[^>]*id="purge">Slet permanent<\/button>/);
+  assert.equal(shop.includes('Slet permanent'), false);
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
-  assert.match(css, /\.archive-actions\{display:flex;flex-wrap:wrap/);
+  assert.match(css, /\.archive-actions\{display:inline-flex;flex-flow:row nowrap/);
   assert.equal(shop.includes('data-purge'), false);
   assert.equal(shop.includes('/api/admin/archived'), false);
 });

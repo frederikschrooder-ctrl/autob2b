@@ -846,6 +846,45 @@ function createApp(opts = {}) {
       });
     } else res.json({ ok: true, deleted: true });
   }));
+  app.post('/api/admin/packages/:id/restore', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const pkg = db.prepare('SELECT * FROM packages WHERE id=?').get(id);
+    if (!pkg) throw new HttpError(404, 'Parti ikke fundet');
+    if (pkg.purged_at) throw new HttpError(409, 'Partiet er slettet permanent og kan ikke gendannes.');
+    if (!pkg.archived_at) throw new HttpError(409, 'Partiet er ikke arkiveret');
+    const before = orderKeepSnap();
+    const statusBefore = pkg.status;
+    tx(() => {
+      const cur = db.prepare('SELECT * FROM packages WHERE id=?').get(id);
+      if (!cur || cur.purged_at || !cur.archived_at) throw new HttpError(409, 'Partiet er ikke arkiveret');
+      db.prepare('UPDATE packages SET archived_at=NULL WHERE id=? AND purged_at IS NULL').run(id);
+      const after = db.prepare('SELECT status, purged_at, archived_at FROM packages WHERE id=?').get(id);
+      if (!after || after.status !== statusBefore || after.purged_at || after.archived_at) throw new HttpError(500, 'Gendannelse må ikke ændre salget');
+      assertOrdersKept(before);
+    });
+    res.json({ ok: true, package: pkgOut(db.prepare('SELECT * FROM packages WHERE id=?').get(id)) });
+  }));
+  app.post('/api/admin/vehicles/:id/restore', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const v = db.prepare('SELECT * FROM vehicles WHERE id=?').get(id);
+    if (!v) throw new HttpError(404, 'Bil ikke fundet');
+    if (v.purged_at) throw new HttpError(409, 'Bilen er slettet permanent og kan ikke gendannes.');
+    if (!v.archived_at) {
+      if (isArchivedVehicle(id)) throw new HttpError(409, 'Bilen ligger i et arkiveret parti. Gendan partiet i stedet.');
+      throw new HttpError(409, 'Bilen er ikke arkiveret');
+    }
+    const before = orderKeepSnap();
+    const statusBefore = v.status;
+    tx(() => {
+      if (db.prepare('UPDATE vehicles SET archived_at=NULL WHERE id=? AND purged_at IS NULL AND archived_at IS NOT NULL').run(id).changes !== 1) {
+        throw new HttpError(409, 'Bilen er ikke arkiveret');
+      }
+      const after = db.prepare('SELECT status, purged_at, archived_at FROM vehicles WHERE id=?').get(id);
+      if (!after || after.status !== statusBefore || after.purged_at || after.archived_at) throw new HttpError(500, 'Gendannelse må ikke ændre salget');
+      assertOrdersKept(before);
+    });
+    res.json({ ok: true, vehicle: getVehicle(id) });
+  }));
   app.post('/api/admin/orders/:id/:action', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
     const action = req.params.action;
