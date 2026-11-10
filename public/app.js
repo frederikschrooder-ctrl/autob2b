@@ -668,7 +668,7 @@ function setCartCount(n) {
 function shopShell(active, inner, unread = 0) {
   const nav = [['/shop', 'Biler'], ['/shop/packages', 'Partier'], ['/shop/orders', 'Mine ordrer'], ['/account/profile', 'Profil']];
   $app.innerHTML = `<header class="shopbar">${brandLink()}<nav aria-label="Forhandler">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
-   <div class="sp">${cartIcon(active)}<span>${esc(S.user.company_name || S.user.name)}</span>${link('/account/password', 'Adgangskode')}<button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
+   <div class="sp">${cartIcon(active)}<span>${esc(S.user.company_name || S.user.name)}</span><button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
   document.getElementById('lo').onclick = logout;
   api('GET', '/api/shop/cart').then((r) => setCartCount(r.cart.count)).catch(() => {});
 }
@@ -678,7 +678,7 @@ function holdPage() {
   <main class="shopmain"><div class="authbox" style="margin:3rem auto"><h1>${rej ? 'Din ansøgning er afvist' : 'Din ansøgning afventer godkendelse'}</h1>
   <p>${rej ? 'Din forhandlerkonto er desværre ikke blevet godkendt, og du har derfor ikke adgang til kataloget.' : 'Vi gennemgår din ansøgning. Du får adgang til biler og partier, så snart din konto er godkendt.'}</p>
   ${rej ? '' : '<p class="muted">Opdater siden for at se, om kontoen er blevet godkendt.</p>'}
-  <p>${btnLink('/account/profile', 'Profil', 'outline')} ${btnLink('/account/password', 'Skift adgangskode', 'outline')}</p></div></main>`;
+  <p>${btnLink('/account/profile', 'Profil', 'outline')} ${btnLink('/account/profile#skift-adgangskode', 'Skift adgangskode', 'outline')}</p></div></main>`;
   document.getElementById('lo').onclick = logout;
 }
 const carImg = (v) => (v.images && v.images[0] && !v.images[0].endsWith('.heic') ? `<img src="${esc(v.images[0])}" alt="">` : '🚗');
@@ -890,11 +890,20 @@ async function dealerEdit(id) {
 
 async function profilePage() {
   if (!S.user || S.user.role !== 'dealer') return go(S.user && S.user.role === 'admin' ? '/dashboard' : '/login', true);
+  const minPw = Number(S.user.password_min_length) || 4;
   const inner = `<div class="pagehead"><h1>Profil</h1></div><div id="msg"></div>
     <form id="pf" class="formcard" novalidate style="max-width:32rem">
       <p class="muted" style="margin-top:0">${esc(S.user.company_name || S.user.name)} · ${esc(S.user.email)}</p>
       <label>Mobilnummer</label><input type="tel" name="phone" required autocomplete="tel" inputmode="tel" maxlength="32" value="${esc(S.user.phone || '')}">
       <button class="btn" type="submit">Gem mobilnummer</button>
+    </form>
+    <form id="pw" class="formcard" novalidate style="max-width:32rem">
+      <h2 id="skift-adgangskode">Skift adgangskode</h2>
+      <p class="muted" style="margin-top:0">Den nye adgangskode gælder med det samme og bevares, når serveren genstarter.</p>
+      <label>Nuværende adgangskode</label><input type="password" name="current_password" required autocomplete="current-password">
+      <label>Ny adgangskode</label><div class="muted" style="font-size:.8rem">Mindst ${minPw} tegn.</div><input type="password" name="new_password" required minlength="${minPw}" autocomplete="new-password">
+      <button class="btn" type="submit">Gem ny adgangskode</button>
+      <div id="pm"></div>
     </form>`;
   if (S.user.status === 'approved') shopShell('/account/profile', inner);
   else {
@@ -911,6 +920,20 @@ async function profilePage() {
       sel('#msg').innerHTML = '<div class="ok">Mobilnummeret er gemt.</div>';
     } catch (err) { showErr(sel('#msg'), err); }
   });
+  document.getElementById('pw').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    if (String(d.new_password || '').length < minPw) return showErr(document.getElementById('pm'), new Error(`Adgangskoden skal være mindst ${minPw} tegn`));
+    try {
+      await api('POST', '/api/auth/password', { current_password: d.current_password, new_password: d.new_password });
+      e.target.reset();
+      document.getElementById('pm').innerHTML = '<div class="ok">Adgangskoden er ændret.</div>';
+    } catch (err) { showErr(document.getElementById('pm'), err); }
+  });
+  if (location.hash === '#skift-adgangskode') {
+    const section = document.getElementById('skift-adgangskode');
+    if (section) section.scrollIntoView();
+  }
 }
 
 // ---------- router ----------
@@ -923,7 +946,8 @@ async function render() {
     if (path === '/') return landing();
     if (path === '/login' || path === '/register') { if (S.user) return go(S.user.role === 'admin' ? '/dashboard' : '/shop', true); return authPage(path.slice(1)); }
     if (!S.user) return go('/login', true);
-    if (path === '/account/password') return passwordPage();
+    if (path === '/adgangskode' || path === '/account/adgangskode') return go(S.user.role === 'dealer' ? '/account/profile#skift-adgangskode' : '/account/password', true);
+    if (path === '/account/password') return S.user.role === 'dealer' ? go('/account/profile#skift-adgangskode', true) : passwordPage();
     if (path === '/account/profile') return profilePage();
     if ((m = path.match(/^\/agreement\/(\d+)$/))) return agreementPage(m[1]);
     if (path.startsWith('/dashboard')) {
