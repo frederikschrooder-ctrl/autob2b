@@ -115,6 +115,15 @@ label{display:block;font-weight:600;font-size:.8rem;letter-spacing:.01em;color:v
 .stat .l{color:var(--m);font-size:.8rem;font-weight:600;letter-spacing:.01em}.stat .v{font-size:1.65rem;font-weight:800;letter-spacing:-.03em;line-height:1.1;color:var(--deep);margin-top:.2rem}
 .filters{display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:1rem}
 .filters input{flex:2;min-width:220px}.filters select{flex:1;min-width:170px;width:auto}
+.dealer-filters input,.dealer-filters select{min-width:0;flex:1 1 12rem}
+.order-actions,.order-row-actions,.resale-actions{display:flex;flex-direction:column;align-items:flex-start;gap:.45rem}
+.row-actions{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}
+.modal{position:fixed;inset:0;z-index:40;background:rgba(38,46,54,.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem}
+.modal[hidden]{display:none}
+.dialog{background:var(--surface);color:var(--ink);border-radius:16px;padding:1.2rem 1.15rem;width:100%;max-width:32rem;box-shadow:0 16px 40px rgba(38,46,54,.18)}
+.dialog p{white-space:pre-line}
+.modal-actions{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end;margin-top:1rem}
+@media(min-width:701px){.modal{align-items:center}}
 .tablewrap{background:var(--surface);border:1px solid var(--b);border-radius:14px;overflow:auto;box-shadow:0 8px 20px rgba(38,46,54,.05)}
 .recent-order{background:var(--surface);border:1px solid var(--b);border-radius:14px;padding:1rem 1.05rem;margin:0 0 .75rem;display:flex;flex-wrap:wrap;gap:.7rem .85rem;align-items:center;justify-content:space-between;box-shadow:0 8px 20px rgba(38,46,54,.05)}
 .recent-main{min-width:0;flex:1 1 220px}
@@ -158,6 +167,8 @@ td.act{min-width:150px}td.act>*{margin:0 .3rem .3rem 0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 1.2rem}
 @media(max-width:700px){
   .grid2{grid-template-columns:1fr}
+  .dealer-filters{flex-direction:column}
+  .dealer-filters input,.dealer-filters select{width:100%}
   .layout-body{flex-direction:column}
   .side{display:none;width:100%;height:auto;position:static;top:auto;padding:.7rem .85rem;border-right:0;border-bottom:0}
   .side.open{display:flex}

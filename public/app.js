@@ -53,6 +53,38 @@ const go = (path, replace) => { history[replace ? 'replaceState' : 'pushState'](
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-link]');
   if (a && !e.metaKey && !e.ctrlKey && e.button === 0) { e.preventDefault(); go(a.getAttribute('href')); }
+  const open = e.target.closest('[data-resale]');
+  const dialog = document.getElementById('resale-dialog');
+  if (open && dialog) {
+    dialog.dataset.order = open.dataset.resale;
+    dialog.dataset.vehicle = open.dataset.vehicle;
+    const copy = document.getElementById('resale-copy');
+    if (copy) copy.textContent = open.getAttribute('data-text') || '';
+    const reason = document.getElementById('resale-reason');
+    if (reason) reason.value = '';
+    dialog.hidden = false;
+    return;
+  }
+  if (e.target.id === 'resale-cancel' || e.target.id === 'resale-dialog') {
+    if (dialog) { dialog.hidden = true; delete dialog.dataset.order; delete dialog.dataset.vehicle; }
+  }
+});
+document.addEventListener('submit', async (e) => {
+  if (!e.target || e.target.id !== 'resale-form') return;
+  e.preventDefault();
+  const dialog = document.getElementById('resale-dialog');
+  if (!dialog || !dialog.dataset.order) return;
+  const reason = document.getElementById('resale-reason');
+  try {
+    await api('POST', '/api/admin/orders/' + dialog.dataset.order + '/resell', { confirm: true, vehicle_id: Number(dialog.dataset.vehicle), reason: reason ? reason.value : '' });
+    dialog.hidden = true;
+    const path = location.pathname;
+    if (path === '/dashboard/orders') { const st = document.getElementById('st'); if (st) st.dispatchEvent(new Event('change')); }
+    else go(path, true);
+  } catch (err) {
+    const msg = document.getElementById('msg');
+    if (msg) showErr(msg, err);
+  }
 });
 window.addEventListener('popstate', render);
 const link = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="${cls}">${text}</a>`;
@@ -497,6 +529,29 @@ function confirmPurge() {
 function confirmArchive(id) {
   return confirm(`Arkivér ordre #${id}?\n\nOrdren fjernes fra oversigten og tællingerne. Købsaftalen og prisen i aftalen slettes ikke.\n\nEn afventende reservation frigives.\nEn bekræftet eller gennemført handel sætter ikke bilen til salg igen.\n\nDu kan gendanne ordren under Arkiv.`);
 }
+function resaleCars(o) {
+  if (!o || o.archived_at || !['confirmed', 'completed'].includes(o.status)) return [];
+  return (o.vehicles || []).filter((v) => v && v.status === 'sold' && !v.cancelled_at);
+}
+function resaleButtons(o) {
+  const cars = resaleCars(o);
+  const multi = cars.length > 1 || !!(o && (o.package_id || (o.vehicles || []).length > 1));
+  return cars.map((v) => {
+    const title = [v.make, v.model, v.variant].filter(Boolean).join(' ') || ('Bil #' + v.id);
+    const text = multi
+      ? `Sæt ${title} til salg igen?\n\nKun denne bil frigives. De andre biler forbliver solgt.\nKøbsaftalen dækker hele ordren og slettes også.\n\nTryk OK for at fortsætte.`
+      : `Sæt bilen til salg igen?\n\nOrdren annulleres, og bilen bliver tilgængelig.\nForhandlerens købsaftale for denne ordre slettes.\n\nTryk OK for at fortsætte.`;
+    const label = multi ? `Sæt til salg igen: ${title}` : 'Sæt til salg igen';
+    return `<button type="button" class="btn outline" data-resale="${o.id}" data-vehicle="${v.id}" data-text="${esc(text)}">${esc(label)}</button>`;
+  }).join('');
+}
+function resaleDialog() {
+  return `<div id="resale-dialog" class="modal" hidden><form id="resale-form" class="dialog" role="dialog" aria-modal="true" aria-labelledby="resale-title"><h2 id="resale-title">Sæt til salg igen</h2><p id="resale-copy"></p><label for="resale-reason">Begrundelse (valgfri)</label><input id="resale-reason" name="reason" maxlength="500"><div class="modal-actions"><button type="button" class="btn outline" id="resale-cancel">Annuller</button><button type="submit" class="btn" id="resale-ok">OK</button></div></form></div>`;
+}
+function resaleLogTable(rows) {
+  if (!rows.length) return '<div class="tablewrap"><div class="empty">Ingen registreringer endnu.</div></div>';
+  return `<div class="tablewrap"><table><thead><tr><th>Tid</th><th>Admin</th><th>Ordre</th><th>Bil</th><th>Forhandler</th><th>Aftale</th><th>Begrundelse</th></tr></thead><tbody>${rows.map((r) => `<tr>${cell('Tid', esc(sidstAktiv(r.created_at)))}${cell('Admin', esc(r.admin_name || r.admin_email || '—'))}${cell('Ordre', '#' + r.order_id)}${cell('Bil', esc([r.vehicle_title, r.vehicle_reg].filter(Boolean).join(' · ') || '—'))}${cell('Forhandler', esc(r.dealer_name || '—'))}${cell('Aftale', esc(r.agreement_number || '—'))}${cell('Begrundelse', esc(r.reason || '—'))}</tr>`).join('')}</tbody></table></div>`;
+}
 function recentOrders(orders) {
   if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
   return `<div class="recent-orders">${orders.map((o) => `<article class="recent-order">
@@ -516,7 +571,8 @@ function ordersTable(orders, mode) {
     const edit = btnLink('/dashboard/orders/' + o.id + '/edit', 'Rediger', 'small outline');
     if (archived) return edit + `<span class="archive-actions"><button type="button" class="btn small" data-restore="${o.id}" aria-label="Gendan ordre ${o.id}">Gendan</button><button type="button" class="btn small danger" data-purge-order="${o.id}" aria-label="Slet permanent ordre ${o.id}">Slet permanent</button></span>`;
     const status = full ? `${o.status === 'pending' ? `<button type="button" class="btn small" data-act="confirm" data-id="${o.id}">Bekræft</button>` : ''}${o.status === 'confirmed' ? `<button type="button" class="btn small" data-act="complete" data-id="${o.id}">Gennemfør</button>` : ''}${['pending', 'confirmed'].includes(o.status) ? `<button type="button" class="btn small danger" data-act="cancel" data-id="${o.id}" aria-label="Annuller ordre ${o.id}">Annuller</button>` : ''}${o.has_agreement ? btnLink('/agreement/' + o.id, 'Aftale', 'small outline') : ''}` : '';
-    return status + edit + `<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button>`;
+    const resale = full ? resaleButtons(o) : '';
+    return `<div class="order-row-actions"><div class="row-actions">${status}${edit}<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button></div>${resale ? `<div class="resale-actions">${resale}</div>` : ''}</div>`;
   };
   const mobile = (o) => {
     const stored = o.phone != null && String(o.phone).trim() !== '' ? String(o.phone).trim() : '';
@@ -529,13 +585,15 @@ function ordersTable(orders, mode) {
   ${actions ? cell('Handlinger', buttons(o), 'act') : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 async function ordersPage() {
-  adminShell('/dashboard/orders', `<div class="pagehead"><h1>Ordrer</h1></div><div class="filters"><select id="st"><option value="">Alle aktive ordrer</option>${Object.entries(L.ostatus).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="archived">Arkiv</option></select></div><p class="muted">Slet arkiverer ordren. Købsaftalen bliver liggende, og en solgt bil sættes ikke til salg igen. I arkivet sletter Slet permanent, og kun en ordre der allerede er arkiveret kan slettes sådan.</p><div id="msg"></div><div id="tbl"></div>`);
+  adminShell('/dashboard/orders', `<div class="pagehead"><h1>Ordrer</h1></div><div class="filters"><select id="st"><option value="">Alle aktive ordrer</option>${Object.entries(L.ostatus).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="archived">Arkiv</option></select></div><p class="muted">Slet arkiverer ordren og lader en solgt bil være solgt. Sæt til salg igen annullerer den handel, gør bilen tilgængelig og sletter kun den ordres købsaftale. I arkivet sletter Slet permanent, og kun en ordre der allerede er arkiveret kan slettes sådan.</p><div id="msg"></div><div id="tbl"></div><h2>Salgslog</h2><div id="resale-log"></div>${resaleDialog()}`);
   const load = async () => {
     try {
       const st = sel('#st').value;
       const q = st === 'archived' ? '?archived=1' : (st ? '?status=' + st : '');
       const r = await api('GET', '/api/admin/orders' + q);
       sel('#tbl').innerHTML = ordersTable(r.orders, st === 'archived' ? 'archived' : 'full');
+      const log = await api('GET', '/api/admin/resale-log');
+      sel('#resale-log').innerHTML = resaleLogTable(log.log || []);
     } catch (e) { showErr(sel('#msg'), e); }
   };
   sel('#st').onchange = load;
@@ -596,7 +654,7 @@ async function orderEdit(id) {
       ${(o.corrections || []).length ? `<ul>${o.corrections.map((c) => `<li>${esc(dt(c.created_at))}: ${dkk(c.previous_price)} → ${dkk(c.new_price)} · ${esc(c.reason)}</li>`).join('')}</ul>` : ''}
       ${locked ? '' : '<button class="btn outline" type="submit">Registrer prisrettelse</button>'}
     </form>
-    <p class="archive-actions">${locked ? `<button type="button" class="btn" id="restore">Gendan</button><button type="button" class="btn danger" id="purge">Slet permanent</button>` : `<button type="button" class="btn danger" id="archive">Slet</button>`}</p>`);
+    <div class="order-actions"><p class="archive-actions">${locked ? `<button type="button" class="btn" id="restore">Gendan</button><button type="button" class="btn danger" id="purge">Slet permanent</button>` : `<button type="button" class="btn danger" id="archive">Slet</button>`}</p>${resaleButtons(o) ? `<div class="resale-actions">${resaleButtons(o)}</div>` : ''}</div>${resaleDialog()}`);
   const meta = sel('#meta');
   if (meta && !locked) meta.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -638,22 +696,62 @@ async function orderEdit(id) {
 }
 
 // ---------- admin: dealers ----------
+function foldDa(value) {
+  return String(value || '').toLocaleLowerCase('da-DK').replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa');
+}
+function filterDealers(dealers, opts) {
+  const q = foldDa(opts && opts.q);
+  const status = (opts && opts.status) || 'all';
+  const seen = (opts && opts.seen) || 'all';
+  const nowMs = opts && opts.nowMs ? opts.nowMs : Date.now();
+  const week = 7 * 24 * 60 * 60 * 1000;
+  const month = 30 * 24 * 60 * 60 * 1000;
+  return (dealers || []).filter((d) => {
+    if (status !== 'all' && d.status !== status) return false;
+    const seenAt = d.last_seen_at ? Date.parse(d.last_seen_at) : NaN;
+    if (seen === 'never' && d.last_seen_at) return false;
+    if (seen === '7d' && !(Number.isFinite(seenAt) && nowMs - seenAt <= week)) return false;
+    if (seen === '30d' && !(Number.isFinite(seenAt) && nowMs - seenAt >= month)) return false;
+    if (!q) return true;
+    const hay = foldDa([d.name, d.company_name, d.cvr, d.email, d.phone, d.city].join('\n'));
+    return hay.includes(q);
+  });
+}
 async function dealersPage() {
   adminShell('/dashboard/dealers', '<h1>Indlæser…</h1>');
   const { dealers } = await api('GET', '/api/admin/dealers');
   let seenFirst = false;
+  const filters = { q: '', status: 'all', seen: 'all' };
   const paint = () => {
-    const rows = seenFirst ? [...dealers].sort((a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')) || b.id - a.id) : dealers;
+    const qEl = document.getElementById('dq');
+    const keepFocus = qEl && document.activeElement === qEl;
+    const caret = keepFocus ? qEl.selectionStart : null;
+    if (qEl) filters.q = qEl.value;
+    const statusEl = document.getElementById('dstatus');
+    const seenEl = document.getElementById('dseen');
+    if (statusEl) filters.status = statusEl.value;
+    if (seenEl) filters.seen = seenEl.value;
+    const matched = filterDealers(dealers, filters);
+    const rows = seenFirst ? [...matched].sort((a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')) || b.id - a.id) : matched;
     const seenCell = (d) => esc(sidstAktiv(d.last_seen_at)).replace(' kl. ', '<br>kl. ');
     const sect = (title, st, list, acts) => `<h2>${title} (${list.length})</h2>${list.length ? `<div class="tablewrap"><table class="dealers"><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>Mobilnummer</th><th>E-mail</th><th>Ansøgt</th><th>Sidst aktiv</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${list.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('Mobilnummer', d.phone ? telLink(d.phone) : '—')}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Sidst aktiv', seenCell(d))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
     const by = (s) => rows.filter((d) => d.status === s);
-    adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1><button type="button" class="btn small outline" id="sortseen" aria-pressed="${seenFirst ? 'true' : 'false'}">${seenFirst ? 'Nyeste ansøgninger først' : 'Sidst aktiv først'}</button></div><div id="msg"></div>
-      ${sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
-      ${sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`)}
-      ${sect('Afviste', 'rejected', by('rejected'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button>`)}
+    const show = (st) => filters.status === 'all' || filters.status === st;
+    const sections = rows.length ? `${show('pending') ? sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`) : ''}${show('approved') ? sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`) : ''}${show('rejected') ? sect('Afviste', 'rejected', by('rejected'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button>`) : ''}` : '<div class="tablewrap"><div class="empty">Ingen forhandlere matcher</div></div>';
+    adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1><button type="button" class="btn small outline" id="sortseen" aria-pressed="${seenFirst ? 'true' : 'false'}">${seenFirst ? 'Nyeste ansøgninger først' : 'Sidst aktiv først'}</button></div>
+      <div class="filters dealer-filters"><input id="dq" type="search" placeholder="Søg navn, firma, CVR, e-mail, telefon eller by" value="${esc(filters.q)}" aria-label="Søg forhandlere"><select id="dstatus" aria-label="Status"><option value="all">Alle</option><option value="approved">Aktiv</option><option value="pending">Afventer</option><option value="rejected">Afvist</option></select><select id="dseen" aria-label="Sidst aktiv"><option value="all">Alle</option><option value="never">Aldrig logget ind</option><option value="7d">Aktiv seneste 7 dage</option><option value="30d">Ikke aktiv i 30+ dage</option></select></div>
+      <p class="muted" id="dcount">${rows.length} forhandlere</p><div id="msg"></div>
+      ${sections}
       <form id="af" class="formcard" novalidate><h2>Tilføj Administrator</h2><p class="muted" style="margin-top:0">Kun administratorer kan oprette nye administratorer.</p>
         <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 4 tegn)</label><input type="password" name="password" minlength="4" required autocomplete="new-password"></div></div>
         <button class="btn" style="margin-top:1rem">Opret Administrator</button><div id="am"></div></form>`);
+    document.getElementById('dstatus').value = filters.status;
+    document.getElementById('dseen').value = filters.seen;
+    const search = document.getElementById('dq');
+    search.addEventListener('input', paint);
+    document.getElementById('dstatus').addEventListener('change', paint);
+    document.getElementById('dseen').addEventListener('change', paint);
+    if (keepFocus) { search.focus(); if (caret != null) search.setSelectionRange(caret, caret); }
     document.querySelector('.main').addEventListener('click', async (e) => {
       if (e.target.closest('#sortseen')) { seenFirst = !seenFirst; paint(); return; }
       const b = e.target.closest('[data-a]'); if (!b) return;

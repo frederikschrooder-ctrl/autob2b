@@ -58,6 +58,8 @@ function openDb(file) {
     expires_at TEXT,
     agreement TEXT,
     admin_note TEXT,
+    cancelled_at TEXT,
+    cancel_reason TEXT,
     archived_at TEXT,
     archived_by INTEGER,
     archive_note TEXT,
@@ -75,6 +77,8 @@ function openDb(file) {
   CREATE TABLE IF NOT EXISTS order_vehicles (
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     vehicle_id INTEGER NOT NULL,
+    cancelled_at TEXT,
+    cancel_reason TEXT,
     PRIMARY KEY (order_id, vehicle_id)
   );
   CREATE TABLE IF NOT EXISTS notifications (
@@ -101,6 +105,26 @@ function openDb(file) {
   if (!userCols.includes('phone')) db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
   if (!userCols.includes('last_seen_at')) db.exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
   addOrderCol('purged_at', 'ALTER TABLE orders ADD COLUMN purged_at TEXT');
+  addOrderCol('cancelled_at', 'ALTER TABLE orders ADD COLUMN cancelled_at TEXT');
+  addOrderCol('cancel_reason', 'ALTER TABLE orders ADD COLUMN cancel_reason TEXT');
+  const lineCols = db.prepare('PRAGMA table_info(order_vehicles)').all().map((c) => c.name);
+  if (!lineCols.includes('cancelled_at')) db.exec('ALTER TABLE order_vehicles ADD COLUMN cancelled_at TEXT');
+  if (!lineCols.includes('cancel_reason')) db.exec('ALTER TABLE order_vehicles ADD COLUMN cancel_reason TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS resale_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    admin_user_id INTEGER,
+    admin_name TEXT,
+    admin_email TEXT,
+    order_id INTEGER NOT NULL,
+    vehicle_id INTEGER,
+    vehicle_title TEXT,
+    vehicle_reg TEXT,
+    dealer_id INTEGER,
+    dealer_name TEXT,
+    agreement_number TEXT,
+    reason TEXT
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS vehicle_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,

@@ -111,10 +111,10 @@ function createApp(opts = {}) {
   const orderVehicles = (orderId) => db.prepare('SELECT vehicle_id FROM order_vehicles WHERE order_id=?').all(orderId).map((r) => r.vehicle_id);
   const LOCK_SQL = `(o.status IN ('confirmed','completed') OR (o.status='pending' AND o.archived_at IS NULL))`;
   function lockingOrder(vehicleId, exceptOrderId = 0) {
-    return db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.id<>? AND ${LOCK_SQL} LIMIT 1`).get(vehicleId, exceptOrderId);
+    return db.prepare(`SELECT o.* FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.id<>? AND ov.cancelled_at IS NULL AND ${LOCK_SQL} LIMIT 1`).get(vehicleId, exceptOrderId);
   }
   function saleLocked(vehicleId, exceptOrderId = 0) {
-    return !!db.prepare(`SELECT 1 FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.id<>? AND o.status IN ('confirmed','completed') LIMIT 1`).get(vehicleId, exceptOrderId);
+    return !!db.prepare(`SELECT 1 FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=? AND o.id<>? AND ov.cancelled_at IS NULL AND o.status IN ('confirmed','completed') LIMIT 1`).get(vehicleId, exceptOrderId);
   }
 
   function releaseOrder(order) {
@@ -241,7 +241,7 @@ function createApp(opts = {}) {
     } else {
       out.corrections = db.prepare('SELECT id, previous_price, new_price, reason, admin_id, created_at FROM order_corrections WHERE order_id=? ORDER BY id').all(o.id);
     }
-    out.vehicles = orderVehicles(o.id).map((vid) => db.prepare('SELECT id,vin,make,model,variant FROM vehicles WHERE id=?').get(vid)).filter(Boolean);
+    out.vehicles = db.prepare('SELECT v.id, v.vin, v.make, v.model, v.variant, v.status, ov.cancelled_at FROM order_vehicles ov JOIN vehicles v ON v.id=ov.vehicle_id WHERE ov.order_id=? ORDER BY v.id').all(o.id);
     if (withDealer) {
       const d = db.prepare('SELECT id,name,email,company_name,cvr,city,phone FROM users WHERE id=?').get(o.dealer_id);
       out.dealer = d;
@@ -900,6 +900,57 @@ function createApp(opts = {}) {
     });
     res.json({ ok: true, vehicle: getVehicle(id) });
   }));
+  function resellVehicle(orderId, vehicleId, admin, body) {
+    if (!body || body.confirm !== true) throw bad('Bekræft handlingen før bilen sættes til salg igen');
+    const reason = str(body.reason, { max: 500, field: 'Begrundelse' });
+    return tx(() => {
+      const order = db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
+      if (!order) throw new HttpError(404, 'Ordre ikke fundet');
+      if (order.archived_at) throw new HttpError(409, 'Gendan ordren fra arkivet før den kan sættes til salg igen');
+      if (!['confirmed', 'completed'].includes(order.status)) throw new HttpError(409, 'Kun en bekræftet eller gennemført handel kan sættes til salg igen');
+      const line = db.prepare('SELECT ov.cancelled_at AS line_cancelled, v.* FROM order_vehicles ov JOIN vehicles v ON v.id=ov.vehicle_id WHERE ov.order_id=? AND ov.vehicle_id=?').get(orderId, vehicleId);
+      if (!line) throw new HttpError(404, 'Bilen indgår ikke i ordren');
+      if (line.line_cancelled) throw new HttpError(409, 'Bilen er allerede sat til salg igen');
+      if (line.purged_at) throw new HttpError(409, 'Bilen er slettet permanent');
+      if (line.status !== 'sold') throw new HttpError(409, 'Bilen er ikke solgt');
+      const stamp = new Date(now()).toISOString();
+      const cleared = db.prepare('UPDATE order_vehicles SET cancelled_at=?, cancel_reason=? WHERE order_id=? AND vehicle_id=? AND cancelled_at IS NULL').run(stamp, reason, orderId, vehicleId);
+      if (cleared.changes !== 1) throw new HttpError(409, 'Bilen er allerede sat til salg igen');
+      const freed = db.prepare(`UPDATE vehicles SET status='available' WHERE id=? AND status='sold' AND archived_at IS NULL AND purged_at IS NULL`).run(vehicleId);
+      if (freed.changes !== 1) throw new HttpError(409, line.archived_at ? 'Gendan bilen fra arkivet før den sættes til salg igen' : 'Bilen kunne ikke sættes til salg igen');
+      let agreementNumber = null;
+      if (order.agreement) {
+        try { agreementNumber = JSON.parse(order.agreement).number || null; } catch { agreementNumber = null; }
+        if (db.prepare('UPDATE orders SET agreement=NULL WHERE id=? AND agreement IS NOT NULL').run(orderId).changes !== 1) throw new HttpError(409, 'Købsaftalen kunne ikke slettes');
+      }
+      const remaining = db.prepare('SELECT COUNT(*) n FROM order_vehicles WHERE order_id=? AND cancelled_at IS NULL').get(orderId).n;
+      if (remaining === 0) {
+        if (db.prepare(`UPDATE orders SET status='cancelled', cancelled_at=?, cancel_reason=? WHERE id=? AND status IN ('confirmed','completed')`).run(stamp, reason, orderId).changes !== 1) {
+          throw new HttpError(409, 'Ordren kunne ikke annulleres');
+        }
+      }
+      if (order.package_id && remaining === 0) {
+        const other = db.prepare(`SELECT 1 FROM orders WHERE package_id=? AND id<>? AND status IN ('pending','confirmed','completed')`).get(order.package_id, orderId);
+        if (!other) db.prepare(`UPDATE packages SET status='available' WHERE id=? AND status='sold'`).run(order.package_id);
+      }
+      const dealer = db.prepare('SELECT id, name, company_name FROM users WHERE id=?').get(order.dealer_id);
+      const title = [line.make, line.model, line.variant].filter(Boolean).join(' ');
+      db.prepare(`INSERT INTO resale_log (created_at, admin_user_id, admin_name, admin_email, order_id, vehicle_id, vehicle_title, vehicle_reg, dealer_id, dealer_name, agreement_number, reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(stamp, admin.id, admin.name || null, admin.email || null, orderId, vehicleId, title || null, line.vin || null, dealer ? dealer.id : order.dealer_id, dealer ? (dealer.company_name || dealer.name) : null, agreementNumber, reason);
+      return orderId;
+    });
+  }
+  app.post('/api/admin/orders/:id/resell', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const vehicleId = Number((req.body || {}).vehicle_id);
+    if (!Number.isInteger(vehicleId) || vehicleId < 1) throw bad('Vælg bilen der skal sættes til salg igen');
+    expireOrders();
+    resellVehicle(id, vehicleId, req.user, req.body || {});
+    res.json({ order: orderAdminOut(id) });
+  }));
+  app.get('/api/admin/resale-log', requireAdmin, wrap((req, res) => {
+    res.json({ log: db.prepare('SELECT * FROM resale_log ORDER BY created_at DESC, id DESC').all() });
+  }));
   app.post('/api/admin/orders/:id/:action', requireAdmin, wrap((req, res) => {
     const id = idParam(req);
     const action = req.params.action;
@@ -974,7 +1025,7 @@ function createApp(opts = {}) {
   // ---------- dealer shop ----------
   app.get('/api/shop/vehicles', requireDealer, wrap((req, res) => {
     expireOrders();
-    const where = [`status='available'`, `NOT EXISTS (SELECT 1 FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=vehicles.id AND ${LOCK_SQL})`]; const p = [];
+    const where = [`status='available'`, `NOT EXISTS (SELECT 1 FROM order_vehicles ov JOIN orders o ON o.id=ov.order_id WHERE ov.vehicle_id=vehicles.id AND ov.cancelled_at IS NULL AND ${LOCK_SQL})`]; const p = [];
     const q = str(req.query.q, { max: 100 });
     if (q) { where.push(`(make LIKE ? ESCAPE '\\' OR model LIKE ? ESCAPE '\\' OR variant LIKE ? ESCAPE '\\')`); const l = `%${likeEsc(q)}%`; p.push(l, l, l); }
     if (req.query.fuel) { if (!FUELS.includes(req.query.fuel)) throw bad('Ugyldig brændstoftype'); where.push('fuel=?'); p.push(req.query.fuel); }
