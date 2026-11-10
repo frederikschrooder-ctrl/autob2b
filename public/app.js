@@ -69,10 +69,12 @@ function landing() {
   <header class="banner hero-banner">
   <div class="topbar">${brandLink()}<div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
   <section class="hero">
+    <div class="card hero-card">
     <div class="badge">Lukket B2B Platform — Kun for Forhandlere</div>
     <h1>Premium Importerede Biler Fra Tyskland til Danmark</h1>
     <p>Køb kvalitetsbiler direkte til engrospriser – enkeltvis eller i partier. Adgang kræver en godkendt forhandlerkonto.</p>
     <div class="row">${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big apply')}${btnLink('/login', 'Log Ind', 'big outline')}</div>
+    </div>
   </section>
   </header>
   <section class="section"><h2>Hvad Vi Tilbyder</h2>

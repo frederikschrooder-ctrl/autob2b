@@ -57,6 +57,10 @@ test('header brand links home and names Højboogård B2B', () => {
   assert.match(context.__brand(), /href="\/shop"/);
   context.__setUser({ role: 'dealer', status: 'pending' });
   assert.match(context.__brand(), /href="\/shop"/);
+  const landing = src.slice(src.indexOf('function landing'), src.indexOf('function authPage'));
+  assert.match(landing, /<section class="hero">\s*<div class="card hero-card">/);
+  assert.match(landing, /Lukket B2B Platform — Kun for Forhandlere/);
+  assert.match(landing, /Premium Importerede Biler Fra Tyskland til Danmark/);
   for (const piece of ['function landing', 'function authPage', 'function adminShell', 'function shopShell', 'function holdPage']) {
     assert.match(src.slice(src.indexOf(piece), src.indexOf(piece) + 700), /brandLink\(\)/);
   }
@@ -73,5 +77,7 @@ test('the light page keeps a green header band and does not cover the cards', ()
   assert.match(css, /\.brandmark\{height:61px/);
   assert.match(css, /\.brandmark\{height:74px/);
   assert.match(css, /\.authwrap\{[^}]*margin-top:0/);
+  assert.match(css, /\.hero\{[^}]*background:var\(--slate-wash\)/);
+  assert.match(css, /\.card\{background:var\(--surface\);border:1px solid var\(--b\);border-radius:16px;padding:1\.45rem 1\.35rem;box-shadow:0 8px 22px rgba\(38,46,54,\.06\)\}/);
   assert.doesNotMatch(css, /linear-gradient\(180deg,#0b3d33/);
 });
