@@ -343,6 +343,9 @@ test('archive screens confirm permanent delete and dealers do not get the action
   assert.equal(shop.includes('Slet permanent'), false);
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
   assert.match(css, /\.archive-actions\{display:inline-flex;flex-flow:row nowrap/);
+  assert.match(css, /\.archive-actions \.btn\.danger\{background:#c0392b;border-color:#c0392b;color:#ffffff\}/);
+  assert.match(css, /\.archive-actions \.btn\.danger:hover\{background:#a93226;border-color:#a93226;color:#ffffff\}/);
+  assert.match(css, /\.archive-actions \.btn\.danger:disabled\{background:#fef2f2;/);
   assert.equal(shop.includes('data-purge'), false);
   assert.equal(shop.includes('/api/admin/archived'), false);
 });

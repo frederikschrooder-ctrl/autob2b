@@ -117,6 +117,9 @@ label{display:block;font-weight:600;font-size:.8rem;letter-spacing:.01em;color:v
 .recent-actions .btn{min-height:44px}
 .archive-actions{display:inline-flex;flex-flow:row nowrap;gap:.45rem;align-items:center;vertical-align:middle}
 .archive-actions .btn{min-height:44px;flex:0 0 auto;width:auto;white-space:nowrap}
+.archive-actions .btn.danger{background:#c0392b;border-color:#c0392b;color:#ffffff}
+.archive-actions .btn.danger:hover{background:#a93226;border-color:#a93226;color:#ffffff}
+.archive-actions .btn.danger:disabled{background:#fef2f2;border-color:var(--red-line);color:var(--red-ink)}
 table{border-collapse:collapse;width:100%;font-size:.92rem}
 th{background:var(--slate-wash);text-align:left;padding:.75rem .85rem;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate-700);white-space:nowrap}
 td{padding:.75rem .85rem;border-top:1px solid var(--b);vertical-align:middle}
