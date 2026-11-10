@@ -127,10 +127,10 @@ function authPage(kind) {
 // ---------- admin layout ----------
 function adminShell(active, inner) {
   const nav = [['/dashboard', 'Oversigt'], ['/dashboard/vehicles', 'Biler'], ['/dashboard/packages', 'Partier'], ['/dashboard/orders', 'Ordrer'], ['/dashboard/dealers', 'Forhandlere'], ['/account/password', 'Adgangskode']];
-  $app.innerHTML = `<div class="layout"><aside class="side" id="side"><div class="sidehead">${brandLink()}<button type="button" class="navtoggle" id="navtoggle" aria-expanded="false" aria-controls="sidenav">Menu</button></div>
+  $app.innerHTML = `<div class="layout"><header class="adminbar banner"><div class="sidehead">${brandLink()}<button type="button" class="navtoggle" id="navtoggle" aria-expanded="false" aria-controls="sidenav">Menu</button></div></header><div class="layout-body"><aside class="side" id="side">
     <nav id="sidenav" aria-label="Administration">${nav.map(([h, t]) => `<a data-link href="${esc(h)}" class="${h === active ? 'active' : ''}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
     <div class="user"><div class="n">${esc(S.user.name)}</div><div class="e">${esc(S.user.email)}</div><button type="button" id="lo">Log Ud</button></div></aside>
-    <main class="main">${inner}</main></div>`;
+    <main class="main">${inner}</main></div></div>`;
   document.getElementById('lo').onclick = logout;
   const toggle = document.getElementById('navtoggle');
   toggle.onclick = () => {
