@@ -1,4 +1,9 @@
 'use strict';
+const BRAND = 'Højbogård';
+const BRAND_MARK = BRAND + ' B2B';
+document.title = BRAND_MARK + ' – Lukket B2B Platform for Forhandlere';
+const $footer = typeof document.querySelector === 'function' ? document.querySelector('footer.footer') : null;
+if ($footer) $footer.textContent = '© ' + BRAND_MARK + ' – Business to business for bilforhandlere';
 const $app = document.getElementById('app');
 const S = { user: null };
 
@@ -49,7 +54,10 @@ function brandHome() {
   return S.user.role === 'admin' ? '/dashboard' : '/shop';
 }
 function brandLink() {
-  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 210 40" role="img" aria-label="Højbogård B2B"><title>Højbogård B2B</title><rect width="210" height="40" rx="8" fill="#5a5f66"/><path class="brand-car" d="M44 27c20-1 32-12 58-14 28-2 56 0 78 6 12 3 20 5 24 6" fill="none" stroke="#d5d8dc" stroke-width="1.15" stroke-linecap="round"/><rect x="6" y="5" width="30" height="30" rx="7" fill="none" stroke="#6abf4b" stroke-width="1.8"/><circle cx="21" cy="20" r="8" fill="#6abf4b"/><text x="21" y="24.2" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">H</text><text x="42" y="26" fill="#6abf4b" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700">øjbogård B2B</text></svg></a>`;
+  const label = esc(BRAND_MARK);
+  const badge = esc(BRAND.charAt(0));
+  const word = esc(BRAND.slice(1) + ' B2B');
+  return `<a data-link class="brandlink" href="${esc(brandHome())}"><svg class="brandmark" viewBox="0 0 268 52" role="img" aria-label="${label}" text-rendering="geometricPrecision" shape-rendering="geometricPrecision"><title>${label}</title><defs><radialGradient id="hbg-badge" cx="50%" cy="46%" r="68%"><stop offset="0" stop-color="#6abf4b" stop-opacity="0.22"/><stop offset="0.7" stop-color="#6abf4b" stop-opacity="0.08"/><stop offset="1" stop-color="#6abf4b" stop-opacity="0"/></radialGradient><linearGradient id="hbg-car" x1="58" y1="0" x2="260" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8d939a" stop-opacity="0"/><stop offset="0.14" stop-color="#8d939a" stop-opacity="0.38"/><stop offset="0.86" stop-color="#8d939a" stop-opacity="0.38"/><stop offset="1" stop-color="#8d939a" stop-opacity="0"/></linearGradient><linearGradient id="hbg-word" x1="50" y1="0" x2="258" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#454b52"/><stop offset="0.68" stop-color="#454b52"/><stop offset="1" stop-color="#2f6e20"/></linearGradient></defs><path class="brand-car" d="M62 36c22-1 36-13 68-15 32-2 66 0 92 7 12 3 22 5 28 6" fill="none" stroke="url(#hbg-car)" stroke-width="1.2" stroke-linecap="round"/><circle cx="24" cy="26" r="18" fill="url(#hbg-badge)"/><text x="24" y="32.5" text-anchor="middle" fill="#2f6e20" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">${badge}</text><text x="50" y="34" fill="url(#hbg-word)" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">${word}</text></svg></a>`;
 }
 const btnLink = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="btn ${cls}">${text}</a>`;
 const showErr = (el, e) => { el.innerHTML = `<div class="err">${esc(e.message || e)}</div>`; };
@@ -77,8 +85,7 @@ function landing() {
       <div class="step card"><div class="num">3</div><h3>Gennemse &amp; Køb</h3><p>Reserver en bil i 24 timer, eller køb med det samme – vi genererer automatisk en købsaftale.</p></div>
       <div class="step card"><div class="num">4</div><h3>Modtag Bilerne</h3><p>Vi sørger for levering af bilerne til dig i Danmark.</p></div>
     </div></section>
-  <section class="cta"><h2>Klar til at komme i gang?</h2>${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}</section>
-  <div class="footer">© Højbogård B2B – Lukket B2B platform for bilforhandlere</div>`;
+  <section class="cta"><h2>Klar til at komme i gang?</h2>${btnLink('/register', 'Ansøg om Forhandlerkonto', 'big')}</section>`;
 }
 
 // ---------- auth ----------
@@ -593,7 +600,7 @@ async function shopHome() {
     const p = new URLSearchParams(); if (sel('#q').value) p.set('q', sel('#q').value); if (sel('#fu').value) p.set('fuel', sel('#fu').value);
     try {
       const r = await api('GET', '/api/shop/vehicles?' + p);
-      sel('#lst').innerHTML = r.vehicles.length ? `<div class="vgrid">${r.vehicles.map((v) => `<div class="vcard"><div class="img">${carImg(v)}</div><div class="bd"><h3>${esc(v.make)} ${esc(v.model)}</h3><div class="muted">${esc(v.variant || '')}</div><div class="muted" style="font-size:.85rem">${[v.first_registration ? v.first_registration.slice(0, 4) : '', v.mileage != null ? num(v.mileage) + ' km' : '', L.fuel[v.fuel] || ''].filter(Boolean).join(' · ')}</div><div class="price" style="margin:.6rem 0">${dkk(v.price)} <small>ekskl. moms</small></div>${btnLink('/shop/vehicles/' + v.id, 'Se detaljer', 'small')}</div></div>`).join('')}</div>` : '<div class="empty">Der er ingen tilgængelige biler lige nu.</div>';
+      sel('#lst').innerHTML = r.vehicles.length ? `<div class="vgrid">${r.vehicles.map((v) => `<div class="vcard"><div class="img">${carImg(v)}</div><div class="bd"><h3>${esc(v.make)} ${esc(v.model)}</h3><div class="vsub">${esc(v.variant || '')}</div><div class="vmeta">${[v.first_registration ? v.first_registration.slice(0, 4) : '', v.mileage != null ? num(v.mileage) + ' km' : '', L.fuel[v.fuel] || ''].filter(Boolean).join(' · ')}</div><div class="price">${dkk(v.price)} <small>ekskl. moms</small></div>${btnLink('/shop/vehicles/' + v.id, 'Se detaljer', 'small')}</div></div>`).join('')}</div>` : '<div class="empty">Der er ingen tilgængelige biler lige nu.</div>';
     } catch (e) { showErr(sel('#msg'), e); }
   };
   sel('#q').addEventListener('input', debounce(load)); sel('#fu').onchange = load; load();

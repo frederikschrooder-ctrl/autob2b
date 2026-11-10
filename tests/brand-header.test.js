@@ -9,10 +9,20 @@ test('header brand links home and names Højbogård B2B', () => {
   const root = path.join(__dirname, '..');
   const src = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-  assert.match(html, /<title>Højbogård B2B – Lukket B2B Platform for Forhandlere<\/title>/);
+  assert.match(html, /<title>Lukket B2B Platform for Forhandlere<\/title>/);
+  assert.equal(html.includes('Højbogård'), false);
   assert.equal(html.includes('AutoB2B'), false);
+  assert.deepEqual(src.match(/Højbogård/g), ['Højbogård']);
+  const footer = { textContent: '' };
+  let title = '';
   const context = {
-    document: { getElementById() { return { innerHTML: '', addEventListener() {} }; }, addEventListener() {} },
+    document: {
+      get title() { return title; },
+      set title(value) { title = value; },
+      querySelector(sel) { return sel === 'footer.footer' ? footer : null; },
+      getElementById() { return { innerHTML: '', addEventListener() {} }; },
+      addEventListener() {},
+    },
     window: { addEventListener() {}, scrollTo() {} },
     location: { pathname: '/no-such-page' },
     history: { pushState() {}, replaceState() {} },
@@ -21,6 +31,9 @@ test('header brand links home and names Højbogård B2B', () => {
   };
   vm.createContext(context);
   vm.runInContext(src + '\nglobalThis.__brand = brandLink;\nglobalThis.__setUser = (u) => { S.user = u; };\n', context);
+  assert.equal(title, 'Højbogård B2B – Lukket B2B Platform for Forhandlere');
+  assert.equal(footer.textContent, '© Højbogård B2B – Business to business for bilforhandlere');
+  assert.equal(src.includes('Højboogård'), false);
   const loggedOut = context.__brand();
   assert.match(loggedOut, /<a data-link class="brandlink" href="\/">/);
   assert.match(loggedOut, /aria-label="Højbogård B2B"/);
