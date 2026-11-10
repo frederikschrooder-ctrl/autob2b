@@ -38,7 +38,12 @@ test('header brand links home and names Højboogård B2B', () => {
   const loggedOut = context.__brand();
   assert.match(loggedOut, /<a data-link class="brandlink" href="\/">/);
   assert.match(loggedOut, /aria-label="Højboogård B2B"/);
-  assert.match(loggedOut, />øjboogård B2B</);
+  assert.match(loggedOut, />Højboogård B2B</);
+  assert.equal(loggedOut.includes('>øjboogård'), false);
+  assert.equal(loggedOut.includes('<path'), false);
+  assert.equal(loggedOut.includes('brand-car'), false);
+  assert.equal(loggedOut.includes('hbg-car'), false);
+  assert.equal(loggedOut.includes('stroke='), false);
   assert.equal(loggedOut.includes('Højbogård'), false);
   assert.match(loggedOut, /id="hbg-badge"/);
   assert.match(loggedOut, /id="hbg-word"/);
