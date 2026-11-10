@@ -56,3 +56,17 @@ test('header brand links home and names Højboogård B2B', () => {
     assert.match(src.slice(src.indexOf(piece), src.indexOf(piece) + 700), /brandLink\(\)/);
   }
 });
+
+test('the light page keeps a green header band and does not cover the cards', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
+  assert.equal(/margin-top:\s*-/.test(css), false);
+  assert.match(css, /--bg:#fafffe/);
+  assert.match(css, /--ink:#262e36/);
+  assert.match(css, /--deep:#056b57/);
+  assert.match(css, /--brand:#6cb757/);
+  assert.match(css, /\.brandmark\{height:52px/);
+  assert.match(css, /\.brandmark\{height:61px/);
+  assert.match(css, /\.brandmark\{height:74px/);
+  assert.match(css, /\.authwrap\{[^}]*margin-top:0/);
+  assert.doesNotMatch(css, /linear-gradient\(180deg,#0b3d33/);
+});
