@@ -5,14 +5,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-test('header brand links home and names Højbogård B2B', () => {
+test('header brand links home and names Højboogård B2B', () => {
   const root = path.join(__dirname, '..');
   const src = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
   assert.match(html, /<title>Lukket B2B Platform for Forhandlere<\/title>/);
+  assert.equal(html.includes('Højboogård'), false);
   assert.equal(html.includes('Højbogård'), false);
   assert.equal(html.includes('AutoB2B'), false);
-  assert.deepEqual(src.match(/Højbogård/g), ['Højbogård']);
+  assert.deepEqual(src.match(/Højboogård/g), ['Højboogård']);
+  assert.equal(src.includes('Højbogård'), false);
   const footer = { textContent: '' };
   let title = '';
   const context = {
@@ -31,14 +33,13 @@ test('header brand links home and names Højbogård B2B', () => {
   };
   vm.createContext(context);
   vm.runInContext(src + '\nglobalThis.__brand = brandLink;\nglobalThis.__setUser = (u) => { S.user = u; };\n', context);
-  assert.equal(title, 'Højbogård B2B – Lukket B2B Platform for Forhandlere');
+  assert.equal(title, 'Højboogård B2B – Lukket B2B Platform for Forhandlere');
   assert.equal(footer.textContent, '© Højboogård B2B – Business to business for bilforhandlere');
-  assert.equal(src.includes('Højboogård'), true);
   const loggedOut = context.__brand();
-  assert.equal(loggedOut.includes('Højboogård'), false);
   assert.match(loggedOut, /<a data-link class="brandlink" href="\/">/);
-  assert.match(loggedOut, /aria-label="Højbogård B2B"/);
-  assert.match(loggedOut, />øjbogård B2B</);
+  assert.match(loggedOut, /aria-label="Højboogård B2B"/);
+  assert.match(loggedOut, />øjboogård B2B</);
+  assert.equal(loggedOut.includes('Højbogård'), false);
   assert.match(loggedOut, /id="hbg-badge"/);
   assert.match(loggedOut, /id="hbg-word"/);
   assert.match(loggedOut, />H</);

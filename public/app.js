@@ -1,10 +1,9 @@
 'use strict';
-const BRAND = 'Højbogård';
+const BRAND = 'Højboogård';
 const BRAND_MARK = BRAND + ' B2B';
-const FOOTER_MARK = 'Højboogård B2B';
 document.title = BRAND_MARK + ' – Lukket B2B Platform for Forhandlere';
 const $footer = typeof document.querySelector === 'function' ? document.querySelector('footer.footer') : null;
-if ($footer) $footer.textContent = '© ' + FOOTER_MARK + ' – Business to business for bilforhandlere';
+if ($footer) $footer.textContent = '© ' + BRAND_MARK + ' – Business to business for bilforhandlere';
 const $app = document.getElementById('app');
 const S = { user: null };
 
