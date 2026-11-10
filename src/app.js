@@ -410,6 +410,8 @@ function createApp(opts = {}) {
     const where = []; const p = [];
     const q = str(req.query.q, { max: 100 });
     if (q) { where.push(`(vin LIKE ? ESCAPE '\\' OR make LIKE ? ESCAPE '\\' OR model LIKE ? ESCAPE '\\')`); const l = `%${likeEsc(q)}%`; p.push(l, l, l); }
+    if (req.query.archived === '1') where.push(`(${archivedVehicleSql()})`);
+    else { where.push('purged_at IS NULL'); where.push('archived_at IS NULL'); }
     if (req.query.status) { if (!VEHICLE_STATUSES.includes(req.query.status)) throw bad('Ugyldig status'); where.push('status=?'); p.push(req.query.status); }
     if (req.query.fuel) { if (!FUELS.includes(req.query.fuel)) throw bad('Ugyldig brændstoftype'); where.push('fuel=?'); p.push(req.query.fuel); }
     const rows = db.prepare(`SELECT * FROM vehicles ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC`).all(...p).map(vehicleOut);
@@ -509,7 +511,9 @@ function createApp(opts = {}) {
   }
   app.get('/api/admin/packages', requireAdmin, wrap((req, res) => {
     expireOrders();
-    res.json({ packages: db.prepare('SELECT * FROM packages WHERE archived_at IS NULL ORDER BY id DESC').all().map(pkgOut) });
+    const archived = req.query.archived === '1';
+    const where = archived ? 'archived_at IS NOT NULL AND purged_at IS NULL' : 'archived_at IS NULL';
+    res.json({ packages: db.prepare(`SELECT * FROM packages WHERE ${where} ORDER BY id DESC`).all().map(pkgOut) });
   }));
   app.get('/api/admin/packages/:id', requireAdmin, wrap((req, res) => {
     expireOrders();
@@ -583,7 +587,7 @@ function createApp(opts = {}) {
   app.get('/api/admin/orders', requireAdmin, wrap((req, res) => {
     expireOrders();
     const archived = req.query.archived === '1';
-    const where = [archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'];
+    const where = [archived ? 'archived_at IS NOT NULL AND purged_at IS NULL' : 'archived_at IS NULL'];
     const params = [];
     if (req.query.status) {
       if (!ORDER_STATUSES.includes(req.query.status)) throw bad('Ugyldig status');
@@ -692,6 +696,155 @@ function createApp(opts = {}) {
     const id = idParam(req);
     restoreOrder(id);
     res.json({ order: orderAdminOut(id) });
+  }));
+
+  const ORDER_KEEP_SQL = 'id, dealer_id, vehicle_id, package_id, kind, status, price, item_label, agreement, archived_at';
+  function orderKeepSnap() {
+    return db.prepare(`SELECT ${ORDER_KEEP_SQL} FROM orders ORDER BY id`).all();
+  }
+  function assertOrdersKept(before) {
+    if (JSON.stringify(orderKeepSnap()) !== JSON.stringify(before)) throw new HttpError(500, 'Aftalen må ikke ændres');
+  }
+  function vehicleReferenced(vid) {
+    return !!db.prepare('SELECT 1 AS n FROM orders WHERE vehicle_id=? UNION SELECT 1 FROM order_vehicles WHERE vehicle_id=?').get(vid, vid);
+  }
+  function archivedVehicleSql() {
+    return `purged_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM package_vehicles pv
+        JOIN packages p ON p.id = pv.package_id
+        WHERE pv.vehicle_id = vehicles.id AND p.archived_at IS NULL
+      )
+      AND (
+        archived_at IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM package_vehicles pv
+          JOIN packages p ON p.id = pv.package_id
+          WHERE pv.vehicle_id = vehicles.id AND p.archived_at IS NOT NULL AND p.purged_at IS NULL
+        )
+      )`;
+  }
+  function isArchivedVehicle(id) {
+    return !!db.prepare(`SELECT 1 FROM vehicles WHERE id=? AND ${archivedVehicleSql()}`).get(id);
+  }
+  function vehicleImageUrls(vid) {
+    return imageRows(vid).map((row) => row.url);
+  }
+  function forgetVehicleImages(vid) {
+    const urls = vehicleImageUrls(vid);
+    db.prepare('DELETE FROM vehicle_images WHERE vehicle_id=?').run(vid);
+    db.prepare(`UPDATE vehicles SET images='[]' WHERE id=?`).run(vid);
+    return urls;
+  }
+  function hardDeleteVehicle(vid) {
+    const urls = vehicleImageUrls(vid);
+    db.prepare('DELETE FROM vehicles WHERE id=?').run(vid);
+    return urls;
+  }
+  function releaseUploads(urls) {
+    for (const url of urls) removeOwnedUpload(url);
+  }
+  app.delete('/api/admin/archived/vehicles/:id', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const v = db.prepare('SELECT * FROM vehicles WHERE id=?').get(id);
+    if (!v) throw new HttpError(404, 'Bil ikke fundet');
+    if (v.purged_at) throw new HttpError(409, 'Bilen er allerede fjernet fra arkivet.');
+    if (!isArchivedVehicle(id)) throw new HttpError(409, 'Kun en arkiveret bil kan slettes permanent.');
+    const before = orderKeepSnap();
+    const stamp = new Date(now()).toISOString();
+    const result = tx(() => {
+      const cur = db.prepare('SELECT * FROM vehicles WHERE id=?').get(id);
+      if (!cur || cur.purged_at || !isArchivedVehicle(id)) throw new HttpError(409, 'Kun en arkiveret bil kan slettes permanent.');
+      const kept = vehicleReferenced(id);
+      const files = kept ? forgetVehicleImages(id) : hardDeleteVehicle(id);
+      if (kept) {
+        db.prepare('DELETE FROM package_vehicles WHERE vehicle_id=? AND package_id IN (SELECT id FROM packages WHERE archived_at IS NOT NULL)').run(id);
+        db.prepare('UPDATE vehicles SET purged_at=? WHERE id=?').run(stamp, id);
+      }
+      assertOrdersKept(before);
+      return { files, kept };
+    });
+    releaseUploads(result.files);
+    if (result.kept) res.json({ ok: true, deleted: false, kept: true, message: 'Bilen er fjernet fra arkivet. Købsaftalen og ordren er bevaret.' });
+    else res.json({ ok: true, deleted: true });
+  }));
+  app.delete('/api/admin/archived/packages/:id', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const pkg = db.prepare('SELECT * FROM packages WHERE id=?').get(id);
+    if (!pkg) throw new HttpError(404, 'Parti ikke fundet');
+    if (pkg.purged_at) throw new HttpError(409, 'Partiet er allerede fjernet fra arkivet.');
+    if (!pkg.archived_at) throw new HttpError(409, 'Kun et arkiveret parti kan slettes permanent.');
+    const before = orderKeepSnap();
+    const stamp = new Date(now()).toISOString();
+    const result = tx(() => {
+      const cur = db.prepare('SELECT * FROM packages WHERE id=?').get(id);
+      if (!cur || cur.purged_at || !cur.archived_at) throw new HttpError(409, 'Kun et arkiveret parti kan slettes permanent.');
+      const vids = db.prepare('SELECT vehicle_id FROM package_vehicles WHERE package_id=?').all(id).map((row) => row.vehicle_id);
+      const files = [];
+      let kept = false;
+      for (const vid of vids) {
+        const liveElsewhere = db.prepare(`SELECT 1 FROM package_vehicles pv JOIN packages p ON p.id=pv.package_id WHERE pv.vehicle_id=? AND pv.package_id<>? AND p.archived_at IS NULL`).get(vid, id);
+        if (liveElsewhere) {
+          db.prepare('DELETE FROM package_vehicles WHERE package_id=? AND vehicle_id=?').run(id, vid);
+          continue;
+        }
+        if (vehicleReferenced(vid)) {
+          files.push(...forgetVehicleImages(vid));
+          db.prepare('DELETE FROM package_vehicles WHERE package_id=? AND vehicle_id=?').run(id, vid);
+          db.prepare('UPDATE vehicles SET purged_at=? WHERE id=?').run(stamp, vid);
+          kept = true;
+        } else files.push(...hardDeleteVehicle(vid));
+      }
+      if (db.prepare('SELECT 1 FROM orders WHERE package_id=?').get(id)) {
+        db.prepare('UPDATE packages SET purged_at=? WHERE id=? AND archived_at IS NOT NULL').run(stamp, id);
+        kept = true;
+      } else {
+        db.prepare('DELETE FROM package_vehicles WHERE package_id=?').run(id);
+        if (db.prepare('DELETE FROM packages WHERE id=? AND archived_at IS NOT NULL AND purged_at IS NULL').run(id).changes !== 1) {
+          throw new HttpError(409, 'Kun et arkiveret parti kan slettes permanent.');
+        }
+      }
+      assertOrdersKept(before);
+      return { files, kept };
+    });
+    releaseUploads(result.files);
+    if (result.kept) res.json({ ok: true, deleted: false, kept: true, message: 'Partiet er fjernet fra arkivet. Købsaftalen og ordren er bevaret.' });
+    else res.json({ ok: true, deleted: true });
+  }));
+  app.delete('/api/admin/archived/orders/:id', requireAdmin, wrap((req, res) => {
+    const id = idParam(req);
+    const o = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+    if (!o) throw new HttpError(404, 'Ordre ikke fundet');
+    if (o.purged_at) throw new HttpError(409, 'Ordren er allerede fjernet fra arkivet.');
+    if (!o.archived_at) throw new HttpError(409, 'Kun en arkiveret ordre kan slettes permanent.');
+    const protects = !!(o.agreement || o.status === 'confirmed' || o.status === 'completed');
+    const before = orderKeepSnap();
+    const stamp = new Date(now()).toISOString();
+    tx(() => {
+      const cur = db.prepare('SELECT * FROM orders WHERE id=?').get(id);
+      if (!cur || cur.purged_at || !cur.archived_at) throw new HttpError(409, 'Kun en arkiveret ordre kan slettes permanent.');
+      const stillProtects = !!(cur.agreement || cur.status === 'confirmed' || cur.status === 'completed');
+      if (stillProtects) {
+        db.prepare('UPDATE orders SET purged_at=? WHERE id=? AND archived_at IS NOT NULL').run(stamp, id);
+        assertOrdersKept(before);
+        return;
+      }
+      db.prepare('DELETE FROM order_corrections WHERE order_id=?').run(id);
+      db.prepare('DELETE FROM order_vehicles WHERE order_id=?').run(id);
+      if (db.prepare(`DELETE FROM orders WHERE id=? AND archived_at IS NOT NULL AND agreement IS NULL AND status NOT IN ('confirmed','completed')`).run(id).changes !== 1) {
+        throw new HttpError(409, 'Kun en arkiveret ordre kan slettes permanent.');
+      }
+      const rest = before.filter((row) => row.id !== id);
+      if (JSON.stringify(orderKeepSnap()) !== JSON.stringify(rest)) throw new HttpError(500, 'Aftalen må ikke ændres');
+    });
+    if (protects) {
+      res.json({
+        ok: true,
+        deleted: false,
+        kept: true,
+        message: o.agreement ? 'Ordren er fjernet fra arkivet. Købsaftalen er bevaret.' : 'Ordren er fjernet fra arkivet. Salget er bevaret.',
+      });
+    } else res.json({ ok: true, deleted: true });
   }));
   app.post('/api/admin/orders/:id/:action', requireAdmin, wrap((req, res) => {
     const id = idParam(req);

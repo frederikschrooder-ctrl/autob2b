@@ -93,8 +93,13 @@ function openDb(file) {
   addOrderCol('archive_note', 'ALTER TABLE orders ADD COLUMN archive_note TEXT');
   const packageCols = db.prepare('PRAGMA table_info(packages)').all().map((c) => c.name);
   if (!packageCols.includes('archived_at')) db.exec('ALTER TABLE packages ADD COLUMN archived_at TEXT');
+  if (!packageCols.includes('purged_at')) db.exec('ALTER TABLE packages ADD COLUMN purged_at TEXT');
+  const vehicleCols = db.prepare('PRAGMA table_info(vehicles)').all().map((c) => c.name);
+  if (!vehicleCols.includes('archived_at')) db.exec('ALTER TABLE vehicles ADD COLUMN archived_at TEXT');
+  if (!vehicleCols.includes('purged_at')) db.exec('ALTER TABLE vehicles ADD COLUMN purged_at TEXT');
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!userCols.includes('phone')) db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
+  addOrderCol('purged_at', 'ALTER TABLE orders ADD COLUMN purged_at TEXT');
   db.exec(`CREATE TABLE IF NOT EXISTS vehicle_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,

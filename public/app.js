@@ -163,22 +163,36 @@ async function dashboard() {
 async function vehiclesPage() {
   adminShell('/dashboard/vehicles', `<div class="pagehead"><div><h1>Biler</h1><div class="muted" id="cnt">&nbsp;</div></div>${btnLink('/dashboard/vehicles/new', '+ Tilføj Bil')}</div>
     <div class="filters"><input id="q" placeholder="Søg på VIN, mærke eller model…">
-    <select id="st"><option value="">Alle statusser</option>${Object.entries({ available: 'Tilgængelig', reserved: 'Reserveret', sold: 'Solgt' }).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+    <select id="st"><option value="">Alle statusser</option>${Object.entries({ available: 'Tilgængelig', reserved: 'Reserveret', sold: 'Solgt' }).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="archived">Arkiv</option></select>
     <select id="fu"><option value="">Alle brændstoftyper</option>${Object.entries(L.fuel).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
     <div id="msg"></div><div id="tbl"></div>`);
   const load = async () => {
     if (!sel('#q')) return;
-    const p = new URLSearchParams(); if (sel('#q').value) p.set('q', sel('#q').value); if (sel('#st').value) p.set('status', sel('#st').value); if (sel('#fu').value) p.set('fuel', sel('#fu').value);
+    const archiveView = sel('#st').value === 'archived';
+    const p = new URLSearchParams(); if (sel('#q').value) p.set('q', sel('#q').value); if (archiveView) p.set('archived', '1'); else if (sel('#st').value) p.set('status', sel('#st').value); if (sel('#fu').value) p.set('fuel', sel('#fu').value);
     try {
       const r = await api('GET', '/api/admin/vehicles?' + p);
       sel('#cnt').textContent = `${r.count} ${r.count === 1 ? 'bil' : 'biler'}`;
+      const actions = (v) => (archiveView
+        ? `<button type="button" class="btn small danger" data-purge-vehicle="${v.id}" aria-label="Slet ${esc(v.make + ' ' + v.model)}">Slet</button>`
+        : `${btnLink('/dashboard/vehicles/' + v.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-del="${v.id}" data-name="${esc(v.make + ' ' + v.model + ' (' + v.vin + ')')}" aria-label="Slet ${esc(v.make + ' ' + v.model)}">Slet</button>`);
       sel('#tbl').innerHTML = r.vehicles.length ? `<div class="tablewrap"><table><thead><tr><th></th><th>VIN</th><th>Mærke / Model</th><th>Variant</th><th>Km</th><th>Brændstof</th><th>Engrospris</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>
       ${r.vehicles.map((v) => `<tr>${cell('Billede', v.images[0] ? `<img class="thumb" src="${esc(v.images[0])}" alt="">` : '<div class="thumb"></div>')}${cell('VIN', esc(v.vin))}${cell('Mærke / Model', `<b>${esc(v.make)}</b> ${esc(v.model)}`)}${cell('Variant', esc(v.variant || '—'))}${cell('Km', v.mileage != null ? num(v.mileage) : '—')}${cell('Brændstof', esc(L.fuel[v.fuel] || '—'))}${cell('Engrospris', dkk(v.price))}${cell('Status', pill(L.vstatus, v.status))}
-      ${cell('Handlinger', `${btnLink('/dashboard/vehicles/' + v.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-del="${v.id}" data-name="${esc(v.make + ' ' + v.model + ' (' + v.vin + ')')}" aria-label="Slet ${esc(v.make + ' ' + v.model)}">Slet</button>`, 'act')}</tr>`).join('')}</tbody></table></div>` : '<div class="tablewrap"><div class="empty">Ingen biler fundet.</div></div>';
+      ${cell('Handlinger', actions(v), 'act')}</tr>`).join('')}</tbody></table></div>` : '<div class="tablewrap"><div class="empty">Ingen biler fundet.</div></div>';
     } catch (e) { showErr(sel('#msg'), e); }
   };
   sel('#q').addEventListener('input', debounce(load)); sel('#st').onchange = load; sel('#fu').onchange = load;
   sel('#tbl').addEventListener('click', async (e) => {
+    const purge = e.target.closest('[data-purge-vehicle]');
+    if (purge) {
+      if (!confirmPurge()) return;
+      try {
+        const r = await api('DELETE', '/api/admin/archived/vehicles/' + purge.dataset.purgeVehicle);
+        sel('#msg').innerHTML = r.message ? `<div class="notice">${esc(r.message)}</div>` : '<div class="ok">Slettet.</div>';
+        load();
+      } catch (err) { showErr(sel('#msg'), err); }
+      return;
+    }
     const b = e.target.closest('[data-del]'); if (!b) return;
     if (!confirm(`Er du sikker på, at du vil slette ${b.dataset.name}? Det kan ikke fortrydes.`)) return;
     try { await api('DELETE', '/api/admin/vehicles/' + b.dataset.del); sel('#msg').innerHTML = ''; load(); } catch (err) { showErr(sel('#msg'), err); }
@@ -255,7 +269,7 @@ async function vehicleForm(id) {
 // ---------- admin: packages ----------
 async function packagesPage() {
   adminShell('/dashboard/packages', '<h1>Indlæser…</h1>');
-  const [pk, vs] = await Promise.all([api('GET', '/api/admin/packages'), api('GET', '/api/admin/vehicles')]);
+  const [pk, vs, archivedPk] = await Promise.all([api('GET', '/api/admin/packages'), api('GET', '/api/admin/vehicles'), api('GET', '/api/admin/packages?archived=1')]);
   const free = vs.vehicles.filter((v) => v.status === 'available');
   const byId = Object.fromEntries(free.map((v) => [v.id, v]));
   const selected = new Set();
@@ -277,6 +291,12 @@ async function packagesPage() {
       <div class="pick-price">${dkk(v.price)}</div>
     </label>`;
   };
+  const archiveHtml = archivedPk.packages.length
+    ? '<div class="cards">' + archivedPk.packages.map((p) => {
+      const cars = p.vehicle_count === 1 ? 'bil' : 'biler';
+      return `<div class="card"><div style="display:flex;justify-content:space-between;gap:.5rem"><h3>${esc(p.name)}</h3>${pill(L.vstatus, p.effective_status)}</div><div class="price">${dkk(p.total_price)}</div><p class="muted">${esc(p.description || '')}</p><p><b>${p.vehicle_count}</b> ${cars}</p><div class="archive-actions"><button type="button" class="btn small danger" data-purge-package="${p.id}" aria-label="Slet ${esc(p.name)}">Slet</button></div></div>`;
+    }).join('') + '</div>'
+    : '<div class="tablewrap"><div class="empty">Ingen arkiverede partier.</div></div>';
 
   adminShell('/dashboard/packages', `<div class="pagehead"><h1>Bilpartier</h1></div><div id="msg"></div>
   <form id="f" class="formcard" novalidate><h2>Opret Parti</h2>
@@ -304,7 +324,11 @@ async function packagesPage() {
   ${pk.packages.length ? `<div class="cards">${pk.packages.map((p) => `<div class="card"><div style="display:flex;justify-content:space-between;gap:.5rem"><h3>${esc(p.name)}</h3>${pill(L.vstatus, p.effective_status)}</div>
     <div class="price">${dkk(p.total_price)}</div><p class="muted">${esc(p.description || '')}</p>
     <p><b>${p.vehicle_count}</b> ${p.vehicle_count === 1 ? 'bil' : 'biler'}${p.vehicles.length ? ':' : ''}</p><ul style="margin:0 0 1rem 1.1rem;padding:0;font-size:.88rem">${p.vehicles.map((v) => `<li>${esc(v.make)} ${esc(v.model)} <span class="muted">${esc(v.vin)}</span></li>`).join('')}</ul>
-    ${p.status === 'available' ? btnLink('/dashboard/packages/' + p.id + '/edit', 'Rediger', 'small outline') : ''}<button type="button" class="btn small danger" data-del="${p.id}" data-name="${esc(p.name)}">Slet Parti</button></div>`).join('')}</div>` : '<div class="tablewrap"><div class="empty">Ingen partier endnu.</div></div>'}`);
+    ${p.status === 'available' ? btnLink('/dashboard/packages/' + p.id + '/edit', 'Rediger', 'small outline') : ''}<button type="button" class="btn small danger" data-del="${p.id}" data-name="${esc(p.name)}">Slet Parti</button></div>`).join('')}</div>` : '<div class="tablewrap"><div class="empty">Ingen partier endnu.</div></div>'}
+  <h2>Arkiv</h2>
+  <p class="muted">Slet fjerner et parti, der allerede er arkiveret. Billeder og partikoblinger slettes. En købsaftale og ordren bliver liggende.</p>
+  <div id="pkgarch">${archiveHtml}</div>
+`);
 
   const visibleIds = () => [...document.querySelectorAll('#plist .pick-row')].map((el) => +el.dataset.id);
 
@@ -426,9 +450,29 @@ async function packagesPage() {
       if (msg) msg.scrollIntoView({ block: 'center' });
     }
   }));
+  document.querySelectorAll('[data-purge-package]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirmPurge()) return;
+    const msg = sel('#msg');
+    try {
+      const r = await api('DELETE', '/api/admin/archived/packages/' + b.dataset.purgePackage);
+      if (msg) msg.innerHTML = r.message ? `<div class="notice">${esc(r.message)}</div>` : '<div class="ok">Slettet.</div>';
+      const card = b.closest('.card');
+      if (card) card.remove();
+      if (!document.querySelector('[data-purge-package]')) {
+        const box = sel('#pkgarch');
+        if (box) box.innerHTML = '<div class="tablewrap"><div class="empty">Ingen arkiverede partier.</div></div>';
+      }
+    } catch (err) {
+      showErr(msg, err);
+      if (msg) msg.scrollIntoView({ block: 'center' });
+    }
+  }));
 }
 
 // ---------- admin: orders ----------
+function confirmPurge() {
+  return confirm('Er du sikker? Dette kan ikke fortrydes');
+}
 function confirmArchive(id) {
   return confirm(`Arkivér ordre #${id}?\n\nOrdren fjernes fra oversigten og tællingerne. Købsaftalen og prisen i aftalen slettes ikke.\n\nEn afventende reservation frigives.\nEn bekræftet eller gennemført handel sætter ikke bilen til salg igen.\n\nDu kan gendanne ordren under Arkiv.`);
 }
@@ -449,7 +493,7 @@ function ordersTable(orders, mode) {
   if (!orders.length) return '<div class="tablewrap"><div class="empty">Ingen ordrer.</div></div>';
   const buttons = (o) => {
     const edit = btnLink('/dashboard/orders/' + o.id + '/edit', 'Rediger', 'small outline');
-    if (archived) return edit + `<button type="button" class="btn small" data-restore="${o.id}" aria-label="Gendan ordre ${o.id}">Gendan</button>`;
+    if (archived) return edit + `<button type="button" class="btn small" data-restore="${o.id}" aria-label="Gendan ordre ${o.id}">Gendan</button><button type="button" class="btn small danger" data-purge-order="${o.id}" aria-label="Slet ordre ${o.id}">Slet</button>`;
     const status = full ? `${o.status === 'pending' ? `<button type="button" class="btn small" data-act="confirm" data-id="${o.id}">Bekræft</button>` : ''}${o.status === 'confirmed' ? `<button type="button" class="btn small" data-act="complete" data-id="${o.id}">Gennemfør</button>` : ''}${['pending', 'confirmed'].includes(o.status) ? `<button type="button" class="btn small danger" data-act="cancel" data-id="${o.id}" aria-label="Annuller ordre ${o.id}">Annuller</button>` : ''}${o.has_agreement ? btnLink('/agreement/' + o.id, 'Aftale', 'small outline') : ''}` : '';
     return status + edit + `<button type="button" class="btn small danger" data-archive="${o.id}" aria-label="Arkivér ordre ${o.id}">Slet</button>`;
   };
@@ -464,7 +508,7 @@ function ordersTable(orders, mode) {
   ${actions ? cell('Handlinger', buttons(o), 'act') : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 async function ordersPage() {
-  adminShell('/dashboard/orders', `<div class="pagehead"><h1>Ordrer</h1></div><div class="filters"><select id="st"><option value="">Alle aktive ordrer</option>${Object.entries(L.ostatus).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="archived">Arkiv</option></select></div><p class="muted">Slet arkiverer ordren. Købsaftalen bliver liggende, og en solgt bil sættes ikke til salg igen.</p><div id="msg"></div><div id="tbl"></div>`);
+  adminShell('/dashboard/orders', `<div class="pagehead"><h1>Ordrer</h1></div><div class="filters"><select id="st"><option value="">Alle aktive ordrer</option>${Object.entries(L.ostatus).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="archived">Arkiv</option></select></div><p class="muted">Slet arkiverer ordren. Købsaftalen bliver liggende, og en solgt bil sættes ikke til salg igen. I arkivet sletter Slet permanent, og kun en ordre der allerede er arkiveret kan slettes sådan.</p><div id="msg"></div><div id="tbl"></div>`);
   const load = async () => {
     try {
       const st = sel('#st').value;
@@ -478,6 +522,7 @@ async function ordersPage() {
     const act = e.target.closest('[data-act]');
     const archive = e.target.closest('[data-archive]');
     const restore = e.target.closest('[data-restore]');
+    const purge = e.target.closest('[data-purge-order]');
     try {
       if (act) {
         const txt = { confirm: 'Bekræft', complete: 'Gennemfør', cancel: 'Annuller' }[act.dataset.act];
@@ -489,6 +534,12 @@ async function ordersPage() {
       } else if (restore) {
         if (!confirm(`Gendan ordre #${restore.dataset.restore}? Købsaftalen ændres ikke.`)) return;
         await api('POST', '/api/admin/orders/' + restore.dataset.restore + '/restore', {});
+      } else if (purge) {
+        if (!confirmPurge()) return;
+        const r = await api('DELETE', '/api/admin/archived/orders/' + purge.dataset.purgeOrder);
+        sel('#msg').innerHTML = r.message ? `<div class="notice">${esc(r.message)}</div>` : '<div class="ok">Slettet.</div>';
+        load();
+        return;
       } else return;
       sel('#msg').innerHTML = '';
       load();
@@ -524,7 +575,7 @@ async function orderEdit(id) {
       ${(o.corrections || []).length ? `<ul>${o.corrections.map((c) => `<li>${esc(dt(c.created_at))}: ${dkk(c.previous_price)} → ${dkk(c.new_price)} · ${esc(c.reason)}</li>`).join('')}</ul>` : ''}
       ${locked ? '' : '<button class="btn outline" type="submit">Registrer prisrettelse</button>'}
     </form>
-    <p>${locked ? `<button type="button" class="btn" id="restore">Gendan</button>` : `<button type="button" class="btn danger" id="archive">Slet</button>`}</p>`);
+    <p class="archive-actions">${locked ? `<button type="button" class="btn" id="restore">Gendan</button><button type="button" class="btn danger" id="purge">Slet</button>` : `<button type="button" class="btn danger" id="archive">Slet</button>`}</p>`);
   const meta = sel('#meta');
   if (meta && !locked) meta.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -550,6 +601,18 @@ async function orderEdit(id) {
   if (restore) restore.onclick = async () => {
     if (!confirm('Gendan ordre #' + id + '? Købsaftalen ændres ikke.')) return;
     try { await api('POST', '/api/admin/orders/' + id + '/restore', {}); orderEdit(id); } catch (err) { showErr(sel('#msg'), err); }
+  };
+  const purge = sel('#purge');
+  if (purge) purge.onclick = async () => {
+    if (!confirmPurge()) return;
+    try {
+      const r = await api('DELETE', '/api/admin/archived/orders/' + id);
+      if (r.deleted) go('/dashboard/orders');
+      else {
+        sel('#msg').innerHTML = `<div class="notice">${esc(r.message || 'Ordren er fjernet fra arkivet. Købsaftalen er bevaret.')}</div>`;
+        purge.disabled = true;
+      }
+    } catch (err) { showErr(sel('#msg'), err); }
   };
 }
 
