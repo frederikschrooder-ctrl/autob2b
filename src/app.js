@@ -64,11 +64,12 @@ function createApp(opts = {}) {
   const tierEnv = opts.env || {};
   const configuredOwner = tiers.ownerEmail(tierEnv);
   if (!configuredOwner) {
-    log('Admin tiers: no owner email is configured. No user rows were changed. Existing administrators keep the ability to create administrators until BOOTSTRAP_ADMIN_EMAIL or OWNER_EMAIL is set.');
+    log('Admin tiers: no owner email is configured. The earliest approved administrator is treated as owner. No user rows were changed.');
   } else {
     const ownerRow = db.prepare('SELECT id, role, status FROM users WHERE email=?').get(configuredOwner);
     if (!ownerRow) log('Admin tiers: the configured owner email does not match an account. No user rows were changed.');
-    else if (ownerRow.role !== 'admin' || ownerRow.status !== 'approved') log('Admin tiers: the owner account is not stored as an approved admin. It keeps owner access at runtime and its stored role was not changed.');
+    else if (ownerRow.status !== 'approved') log('Admin tiers: the owner account is not approved. Owner access stays off until that account is approved. No user rows were changed.');
+    else if (ownerRow.role !== 'admin') log('Admin tiers: the owner account is not stored as an approved admin. It keeps owner access at runtime and its stored role was not changed.');
   }
   const sellerIdentity = parseSellerIdentity(opts.env || {});
   if (!sellerIdentity.ok) log('Seller identity is incomplete or invalid. New purchase agreements are closed until SELLER_LEGAL_NAME, SELLER_CVR, and SELLER_ADDRESS are valid. Reservations are unchanged.');
@@ -140,9 +141,15 @@ function createApp(opts = {}) {
     }
   }
   function setOrderItemsStatus(order, status) {
+    const lines = db.prepare('SELECT vehicle_id, cancelled_at FROM order_vehicles WHERE order_id=?').all(order.id);
     const upd = db.prepare('UPDATE vehicles SET status=? WHERE id=?');
-    orderVehicles(order.id).forEach((vid) => upd.run(status, vid));
-    if (order.package_id) db.prepare('UPDATE packages SET status=? WHERE id=?').run(status, order.package_id);
+    let active = false;
+    for (const line of lines) {
+      if (line.cancelled_at) continue;
+      active = true;
+      upd.run(status, line.vehicle_id);
+    }
+    if (order.package_id && active) db.prepare('UPDATE packages SET status=? WHERE id=?').run(status, order.package_id);
   }
   function isBusy(e) {
     const msg = String(e && (e.message || e.code || ''));
@@ -280,10 +287,28 @@ function createApp(opts = {}) {
     if (req.user && req.path !== '/auth/login') noteSeen(req.user.id);
     next();
   });
+  function tierOpts() {
+    if (tiers.ownerEmail(tierEnv)) return { fallbackOwnerId: null };
+    const row = db.prepare(`SELECT id FROM users WHERE role='admin' AND status='approved' ORDER BY id LIMIT 1`).get();
+    return { fallbackOwnerId: row ? row.id : null };
+  }
+  const tierOf = (user) => tiers.accountTier(user, tierEnv, tierOpts());
+  const userCanManage = (user) => tiers.canManageAdmins(user, tierEnv, tierOpts());
+  const userCanGrant = (user) => tiers.canGrantHead(user, tierEnv, tierOpts());
+  const userIsStaff = (user) => tiers.hasAdminAccess(user, tierEnv, tierOpts());
+  function reservedTierEmail(email) {
+    const next = tiers.normalizeEmail(email);
+    if (!next) return false;
+    if (tiers.isConfiguredTierEmail(next, tierEnv)) return true;
+    const id = tierOpts().fallbackOwnerId;
+    if (id == null) return false;
+    const row = db.prepare('SELECT email FROM users WHERE id=?').get(id);
+    return !!(row && tiers.normalizeEmail(row.email) === next);
+  }
   const requireAuth = (req, res, next) => (req.user ? next() : res.status(401).json({ error: 'Du skal være logget ind' }));
   const requireAdmin = (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Du skal være logget ind' });
-    if (!tiers.hasAdminAccess(req.user, tierEnv)) return res.status(403).json({ error: 'Kun for administratorer' });
+    if (!userIsStaff(req.user)) return res.status(403).json({ error: 'Kun for administratorer' });
     next();
   };
   const requireDealer = (req, res, next) => {
@@ -297,19 +322,19 @@ function createApp(opts = {}) {
 
   const publicUser = (u) => {
     if (!u) return u;
-    const tier = tiers.accountTier(u, tierEnv);
+    const tier = tierOf(u);
     return {
       id: u.id, email: u.email, name: u.name, role: u.role, status: u.status,
       company_name: u.company_name, cvr: u.cvr, city: u.city, phone: u.phone || null,
       password_min_length: minLengthForRole(u.role),
       tier,
       staff: tier === 'owner' || tier === 'head' || tier === 'admin',
-      can_manage_admins: tiers.canManageAdmins(u, tierEnv),
-      can_grant_head: tiers.canGrantHead(u, tierEnv),
+      can_manage_admins: userCanManage(u),
+      can_grant_head: userCanGrant(u),
     };
   };
   const staffView = (u) => {
-    const tier = tiers.accountTier(u, tierEnv);
+    const tier = tierOf(u);
     return {
       id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, tier,
       company_name: u.company_name || null, cvr: u.cvr || null, city: u.city || null,
@@ -317,7 +342,7 @@ function createApp(opts = {}) {
     };
   };
   const protectedTier = (u) => {
-    const tier = tiers.accountTier(u, tierEnv);
+    const tier = tierOf(u);
     return tier === 'owner' || tier === 'head';
   };
   const SEEN_MS = 5 * 60 * 1000;
@@ -1031,6 +1056,7 @@ function createApp(opts = {}) {
     const d = db.prepare(`SELECT * FROM users WHERE id=? AND role='dealer'`).get(id);
     if (!d) throw new HttpError(404, 'Forhandler ikke fundet');
     if (protectedTier(d)) throw new HttpError(403, 'Ejeren og en hovedadmin kan ikke ændres her');
+    if (tiers.normalizeEmail(email) !== tiers.normalizeEmail(d.email) && reservedTierEmail(email)) throw new HttpError(403, 'Den e-mail er reserveret til ejeren eller en hovedadmin');
     if (db.prepare('SELECT 1 FROM users WHERE email=? AND id<>?').get(email, id)) throw new HttpError(409, 'E-mail er allerede i brug');
     if (db.prepare(`SELECT 1 FROM users WHERE cvr=? AND role='dealer' AND status IN ('pending','approved') AND id<>?`).get(cvr, id)) throw new HttpError(409, 'CVR-nummer er allerede registreret');
     db.prepare(`UPDATE users SET company_name=?, cvr=?, city=?, name=?, email=? WHERE id=? AND role='dealer'`).run(company, cvr, city, name, email, id);
@@ -1045,7 +1071,7 @@ function createApp(opts = {}) {
       const result = tx(() => {
         const d = db.prepare('SELECT * FROM users WHERE id=?').get(id);
         if (!d) throw new HttpError(404, 'Forhandler ikke fundet');
-        const tier = tiers.accountTier(d, tierEnv);
+        const tier = tierOf(d);
         if (tier === 'owner' || tier === 'head' || tier === 'admin' || d.role === 'admin') throw new HttpError(403, 'Ejeren, en hovedadmin og en administrator kan ikke slettes her');
         if (d.role !== 'dealer' || d.status !== 'rejected') throw new HttpError(409, 'Kun en afvist ansøger kan slettes');
         const order = db.prepare('SELECT id, agreement FROM orders WHERE dealer_id=? LIMIT 1').get(id);
@@ -1066,18 +1092,21 @@ function createApp(opts = {}) {
     const d = db.prepare(`SELECT * FROM users WHERE id=? AND role='dealer'`).get(id);
     if (!d) throw new HttpError(404, 'Forhandler ikke fundet');
     if (protectedTier(d)) throw new HttpError(403, 'Ejeren og en hovedadmin kan ikke deaktiveres');
+    if (status === 'approved' && tiers.isConfiguredTierEmail(d.email, tierEnv) && tierOf(req.user) !== 'owner') {
+      throw new HttpError(403, 'Kun ejeren kan godkende en konto med en reserveret e-mail');
+    }
     db.prepare('UPDATE users SET status=? WHERE id=?').run(status, id);
     res.json({ dealer: { id, status } });
   }));
   function assertCanManageAdmins(actor) {
-    if (!tiers.canManageAdmins(actor, tierEnv)) throw new HttpError(403, 'Kun ejeren eller en hovedadmin kan administrere administratorer');
+    if (!userCanManage(actor)) throw new HttpError(403, 'Kun ejeren eller en hovedadmin kan administrere administratorer');
   }
   function loadUser(id) {
     return db.prepare('SELECT * FROM users WHERE id=?').get(id);
   }
   app.get('/api/admin/admins', requireAdmin, wrap((req, res) => {
     const rows = db.prepare('SELECT id,email,name,company_name,cvr,city,phone,status,role,head_admin,created_at,last_seen_at FROM users ORDER BY id').all();
-    res.json({ admins: rows.filter((u) => u.role === 'admin' || tiers.accountTier(u, tierEnv) === 'owner').map(staffView) });
+    res.json({ admins: rows.filter((u) => u.role === 'admin' || tierOf(u) === 'owner').map(staffView) });
   }));
   app.post('/api/admin/admins', requireAdmin, wrap((req, res) => {
     assertCanManageAdmins(req.user);
@@ -1085,7 +1114,7 @@ function createApp(opts = {}) {
     const email = checkEmail(b.email);
     const name = str(b.name, { required: true, max: 120, field: 'Navn' });
     const password = checkPassword(b.password, 'admin');
-    if (email === tiers.ownerEmail(tierEnv)) throw new HttpError(403, 'Ejeren oprettes ikke her');
+    if (reservedTierEmail(email)) throw new HttpError(403, 'Den e-mail er reserveret til ejeren eller en hovedadmin');
     if (db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) throw new HttpError(409, 'E-mail er allerede i brug');
     const r = db.prepare(`INSERT INTO users (email,name,password_hash,role,status,created_at) VALUES (?,?,?,'admin','approved',?)`).run(email, name, A.hashPassword(password), new Date(now()).toISOString());
     res.status(201).json({ admin: { id: Number(r.lastInsertRowid), email, name } });
@@ -1095,8 +1124,9 @@ function createApp(opts = {}) {
     const id = idParam(req);
     const target = loadUser(id);
     if (!target) throw new HttpError(404, 'Bruger ikke fundet');
-    const tier = tiers.accountTier(target, tierEnv);
+    const tier = tierOf(target);
     if (tier === 'owner' || tier === 'head') throw new HttpError(403, 'Ejeren og en hovedadmin ændres ikke her');
+    if (tiers.isConfiguredTierEmail(target.email, tierEnv) && tierOf(req.user) !== 'owner') throw new HttpError(403, 'Kun ejeren kan godkende en konto med en reserveret e-mail');
     if (target.role === 'admin') throw new HttpError(409, 'Brugeren er allerede administrator');
     db.prepare(`UPDATE users SET role='admin', status='approved' WHERE id=? AND role='dealer'`).run(id);
     const after = loadUser(id);
@@ -1108,8 +1138,8 @@ function createApp(opts = {}) {
     const id = idParam(req);
     const target = loadUser(id);
     if (!target) throw new HttpError(404, 'Bruger ikke fundet');
-    if (target.id === req.user.id && tiers.accountTier(req.user, tierEnv) === 'owner') throw new HttpError(403, 'Ejeren kan ikke fjerne sin egen adgang');
-    const tier = tiers.accountTier(target, tierEnv);
+    if (target.id === req.user.id && tierOf(req.user) === 'owner') throw new HttpError(403, 'Ejeren kan ikke fjerne sin egen adgang');
+    const tier = tierOf(target);
     if (tier === 'owner') throw new HttpError(403, 'Ejeren kan ikke slettes, degraderes eller deaktiveres');
     if (tier === 'head') throw new HttpError(403, 'En hovedadmin kan kun fjernes af ejeren, og kun som hovedadmin');
     if (tier !== 'admin') throw new HttpError(409, 'Kun en almindelig administrator kan fjernes');
@@ -1119,11 +1149,11 @@ function createApp(opts = {}) {
     res.json({ user: staffView(after) });
   }));
   app.post('/api/admin/users/:id/head', requireAdmin, wrap((req, res) => {
-    if (!tiers.canGrantHead(req.user, tierEnv)) throw new HttpError(403, 'Kun ejeren kan ændre hovedadmin');
+    if (!userCanGrant(req.user)) throw new HttpError(403, 'Kun ejeren kan ændre hovedadmin');
     const id = idParam(req);
     const target = loadUser(id);
     if (!target) throw new HttpError(404, 'Bruger ikke fundet');
-    if (tiers.accountTier(target, tierEnv) === 'owner' || target.id === req.user.id) throw new HttpError(403, 'Ejeren kan ikke ændre sin egen adgang');
+    if (tierOf(target) === 'owner' || target.id === req.user.id) throw new HttpError(403, 'Ejeren kan ikke ændre sin egen adgang');
     const grant = (req.body || {}).grant;
     if (grant !== true && grant !== false) throw bad('Angiv om hovedadmin skal gives eller fjernes');
     db.prepare('UPDATE users SET head_admin=? WHERE id=?').run(grant ? 1 : 0, id);
@@ -1357,9 +1387,9 @@ function createApp(opts = {}) {
   // Orders + agreement: owner dealer or admin
   app.get('/api/orders/:id', requireAuth, wrap((req, res) => {
     const o = db.prepare('SELECT * FROM orders WHERE id=?').get(idParam(req));
-    const allowed = o && (tiers.hasAdminAccess(req.user, tierEnv) || (req.user.role === 'dealer' && req.user.status === 'approved' && o.dealer_id === req.user.id));
+    const allowed = o && (userIsStaff(req.user) || (req.user.role === 'dealer' && req.user.status === 'approved' && o.dealer_id === req.user.id));
     if (!allowed) throw new HttpError(404, 'Ordre ikke fundet');
-    res.json({ order: orderOut(o, { withDealer: tiers.hasAdminAccess(req.user, tierEnv), withAgreement: true }) });
+    res.json({ order: orderOut(o, { withDealer: userIsStaff(req.user), withAgreement: true }) });
   }));
 
   // ---------- static ----------
@@ -1368,7 +1398,7 @@ function createApp(opts = {}) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(404).type('text/plain').send('Ikke fundet');
     const u = userFromReq(req);
     if (!u) return res.status(401).type('text/plain').send('Du skal være logget ind');
-    if (!(tiers.hasAdminAccess(u, tierEnv) || (u.role === 'dealer' && u.status === 'approved'))) return res.status(403).type('text/plain').send('Ingen adgang');
+    if (!(userIsStaff(u) || (u.role === 'dealer' && u.status === 'approved'))) return res.status(403).type('text/plain').send('Ingen adgang');
     let rel = '';
     try { rel = decodeURIComponent(String(req.path || '')); }
     catch { return res.status(404).type('text/plain').send('Ikke fundet'); }

@@ -146,7 +146,7 @@ test('a missing owner config does not lock out an existing admin', async () => {
   const live = await listen(ctx);
   try {
     const admin = await send(live.base, 'POST', '/api/auth/login', '', { email: 'kept-admin@example.test', password: 'Kept-Admin-1234' });
-    assert.equal(admin.json.user.tier, 'admin');
+    assert.equal(admin.json.user.tier, 'owner');
     assert.equal(admin.json.user.can_manage_admins, true);
     const created = await send(live.base, 'POST', '/api/admin/admins', admin.cookie, { email: 'still-works@example.test', name: 'Still', password: 'Still-Admin-1234' });
     assert.equal(created.status, 201);
@@ -188,7 +188,10 @@ test('only a confirmed delete removes a rejected applicant, and every other case
     assert.equal(row(ctx, 'ordre@example.test').email, 'ordre@example.test');
     const janId = ctx.db.prepare('SELECT id FROM users WHERE email=?').get(JAN).id;
     ctx.db.prepare(`UPDATE users SET status='rejected' WHERE id=?`).run(janId);
-    assert.equal((await send(live.base, 'POST', '/api/admin/dealers/' + janId + '/delete', owner, { confirm: true })).status, 403);
+    const rejectedJan = await send(live.base, 'POST', '/api/auth/login', '', { email: JAN, password: 'Tier-Pass-1234' });
+    assert.equal(rejectedJan.json.user.tier, 'dealer');
+    assert.equal(rejectedJan.json.user.staff, false);
+    assert.equal((await send(live.base, 'GET', '/api/admin/dealers', rejectedJan.cookie)).status, 403);
     ctx.db.prepare(`UPDATE users SET status='approved' WHERE id=?`).run(janId);
     const adminId = ctx.db.prepare('SELECT id FROM users WHERE email=?').get('regular@example.test').id;
     assert.equal((await send(live.base, 'POST', '/api/admin/dealers/' + adminId + '/delete', owner, { confirm: true })).status, 403);
@@ -220,4 +223,117 @@ test('the user list shows Danish tier badges and does not offer demotion of the 
   assert.equal(pendingActs.includes('data-purge-dealer'), false);
   const vehicles = src.slice(src.indexOf('async function vehiclesPage'), src.indexOf('async function packagesPage'));
   assert.equal(vehicles.includes('Gør til hovedadmin'), false);
+});
+
+test('tier emails grant nothing until the owner approves, and admins cannot assign those emails', async () => {
+  const HEAD2 = 'ny-hoved@example.test';
+  const ctx = boot({ HEAD_ADMIN_EMAILS: JAN + ',' + HEAD2 });
+  const live = await listen(ctx);
+  try {
+    const owner = await login(live.base, OWNER);
+    const jan = await login(live.base, JAN);
+    const regular = await login(live.base, 'regular@example.test');
+    const reservedAdmin = await send(live.base, 'POST', '/api/admin/admins', jan, { email: HEAD2, name: 'Ny', password: 'New-Admin-1234' });
+    assert.equal(reservedAdmin.status, 403);
+    assert.equal(ctx.db.prepare('SELECT id FROM users WHERE email=?').get(HEAD2), undefined);
+    assert.equal((await send(live.base, 'POST', '/api/admin/admins', owner, { email: JAN, name: 'Jan', password: 'New-Admin-1234' })).status, 403);
+    const registered = await send(live.base, 'POST', '/api/auth/register', '', {
+      company_name: 'Ny Hoved', cvr: '33445566', city: 'Aarhus', phone: '12345678', email: HEAD2, password: 'Tier-Pass-1234', contact_name: 'Ny',
+    });
+    assert.equal(registered.status, 201);
+    ctx.db.prepare('UPDATE users SET head_admin=1 WHERE email=?').run(HEAD2);
+    const pending = await login(live.base, HEAD2);
+    const pendingUser = (await send(live.base, 'GET', '/api/me', pending)).json.user;
+    assert.equal(pendingUser.tier, 'dealer');
+    assert.equal(pendingUser.staff, false);
+    assert.equal(pendingUser.role, 'dealer');
+    assert.equal(pendingUser.status, 'pending');
+    assert.equal((await send(live.base, 'GET', '/api/admin/dealers', pending)).status, 403);
+    const id = ctx.db.prepare('SELECT id FROM users WHERE email=?').get(HEAD2).id;
+    assert.equal((await send(live.base, 'POST', '/api/admin/dealers/' + id + '/approve', jan, {})).status, 403);
+    assert.equal((await send(live.base, 'POST', '/api/admin/users/' + id + '/promote', jan, {})).status, 403);
+    assert.equal(row(ctx, HEAD2).status, 'pending');
+    assert.equal(row(ctx, HEAD2).role, 'dealer');
+    const hashBefore = row(ctx, HEAD2).password_hash;
+    const approved = await send(live.base, 'POST', '/api/admin/dealers/' + id + '/approve', owner, {});
+    assert.equal(approved.status, 200);
+    const head = await login(live.base, HEAD2);
+    const headUser = (await send(live.base, 'GET', '/api/me', head)).json.user;
+    assert.equal(headUser.tier, 'head');
+    assert.equal(headUser.role, 'dealer');
+    assert.equal(row(ctx, HEAD2).password_hash, hashBefore);
+    assert.equal(row(ctx, HEAD2).role, 'dealer');
+    const dealerId = ctx.db.prepare('SELECT id FROM users WHERE email=?').get('dealer@example.test').id;
+    const body = { company_name: 'Dealer ApS', cvr: '87654321', city: 'Aarhus', name: 'Dealer', email: JAN };
+    for (const cookie of [owner, jan, regular]) {
+      assert.equal((await send(live.base, 'PUT', '/api/admin/dealers/' + dealerId, cookie, body)).status, 403);
+      assert.equal(row(ctx, 'dealer@example.test').email, 'dealer@example.test');
+    }
+    body.email = OWNER;
+    assert.equal((await send(live.base, 'PUT', '/api/admin/dealers/' + dealerId, jan, body)).status, 403);
+    const renamed = await send(live.base, 'PUT', '/api/admin/dealers/' + dealerId, regular, { ...body, email: 'dealer-ny@example.test' });
+    assert.equal(renamed.status, 200);
+    assert.equal(row(ctx, 'dealer-ny@example.test').role, 'dealer');
+    ctx.db.prepare(`UPDATE users SET status='rejected' WHERE email=?`).run(OWNER);
+    const rejectedOwner = await login(live.base, OWNER);
+    const rejectedUser = (await send(live.base, 'GET', '/api/me', rejectedOwner)).json.user;
+    assert.equal(rejectedUser.tier, 'admin');
+    assert.notEqual(rejectedUser.tier, 'owner');
+    ctx.db.prepare(`UPDATE users SET status='approved' WHERE email=?`).run(OWNER);
+    assert.equal(row(ctx, OWNER).role, 'admin');
+    assert.equal(row(ctx, JAN).role, 'dealer');
+  } finally { live.server.close(); ctx.close(); }
+});
+
+test('an empty owner email still protects the earliest administrator', async () => {
+  const logs = [];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-tier-fallback-'));
+  const ctx = createApp({
+    dbFile: path.join(dir, 't.sqlite'), uploadDir: path.join(dir, 'up'), noTimer: true, rateLimit: false, env: SELLER,
+    logger: { log: (m) => logs.push(String(m)), error: (m) => logs.push(String(m)) },
+  });
+  const hash = hashPassword('Tier-Pass-1234');
+  ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status) VALUES (?,?,?,'admin','approved')`).run('first-admin@example.test', 'First', hash);
+  ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status) VALUES (?,?,?,'admin','approved')`).run('second-admin@example.test', 'Second', hash);
+  const firstId = ctx.db.prepare('SELECT id FROM users WHERE email=?').get('first-admin@example.test').id;
+  const secondId = ctx.db.prepare('SELECT id FROM users WHERE email=?').get('second-admin@example.test').id;
+  const live = await listen(ctx);
+  try {
+    assert.ok(firstId < secondId);
+    const second = await login(live.base, 'second-admin@example.test');
+    const secondUser = (await send(live.base, 'GET', '/api/me', second)).json.user;
+    assert.equal(secondUser.tier, 'admin');
+    assert.equal(secondUser.can_manage_admins, true);
+    assert.equal((await send(live.base, 'POST', '/api/admin/users/' + firstId + '/demote', second, {})).status, 403);
+    assert.equal((await send(live.base, 'POST', '/api/admin/dealers/' + firstId + '/delete', second, { confirm: true })).status, 403);
+    assert.equal(row(ctx, 'first-admin@example.test').role, 'admin');
+    assert.equal(row(ctx, 'first-admin@example.test').password_hash, hash);
+    const first = await login(live.base, 'first-admin@example.test');
+    assert.equal((await send(live.base, 'GET', '/api/me', first)).json.user.tier, 'owner');
+    assert.equal(logs.some((line) => /no owner email/i.test(line)), true);
+    assert.equal(logs.some((line) => /first-admin@example.test|second-admin@example.test/i.test(line)), false);
+  } finally { live.server.close(); ctx.close(); }
+});
+
+test('a configured head admin cannot demote the fallback owner when the owner email is empty', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-tier-fallback-head-'));
+  const ctx = createApp({
+    dbFile: path.join(dir, 't.sqlite'), uploadDir: path.join(dir, 'up'), noTimer: true, rateLimit: false,
+    env: { ...SELLER, HEAD_ADMIN_EMAILS: JAN },
+  });
+  const hash = hashPassword('Tier-Pass-1234');
+  ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status) VALUES (?,?,?,'admin','approved')`).run('first-admin@example.test', 'First', hash);
+  ctx.db.prepare(`INSERT INTO users (email,name,password_hash,role,status,company_name) VALUES (?,?,?,'dealer','approved',?)`).run(JAN, 'Jan', hash, 'Jan Biler');
+  const firstId = ctx.db.prepare('SELECT id FROM users WHERE email=?').get('first-admin@example.test').id;
+  const before = row(ctx, 'first-admin@example.test');
+  const live = await listen(ctx);
+  try {
+    const jan = await login(live.base, JAN);
+    assert.equal((await send(live.base, 'GET', '/api/me', jan)).json.user.tier, 'head');
+    assert.equal((await send(live.base, 'POST', '/api/admin/users/' + firstId + '/demote', jan, {})).status, 403);
+    assert.equal((await send(live.base, 'POST', '/api/admin/dealers/' + firstId + '/delete', jan, { confirm: true })).status, 403);
+    assert.deepEqual(row(ctx, 'first-admin@example.test'), before);
+    const first = await login(live.base, 'first-admin@example.test');
+    assert.equal((await send(live.base, 'GET', '/api/me', first)).json.user.tier, 'owner');
+  } finally { live.server.close(); ctx.close(); }
 });

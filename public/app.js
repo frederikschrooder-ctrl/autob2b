@@ -586,7 +586,7 @@ function ordersTable(orders, mode) {
     const phone = stored || dealerPhone;
     return phone ? telLink(phone) : '<span class="muted">–</span>';
   };
-  return `<div class="tablewrap"><table><thead><tr><th>#</th><th>Forhandler</th><th>Mobilnummer</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Udløber</th>${actions ? '<th>Handlinger</th>' : ''}</tr></thead><tbody>
+  return `<div class="tablewrap"><table class="orders"><thead><tr><th>#</th><th>Forhandler</th><th>Mobilnummer</th><th>Vare</th><th>Type</th><th>Pris (ekskl. moms)</th><th>Status</th><th>Oprettet</th><th>Udløber</th>${actions ? '<th>Handlinger</th>' : ''}</tr></thead><tbody>
   ${orders.map((o) => `<tr>${cell('#', o.id)}${cell('Forhandler', esc(o.dealer?.company_name || '—'))}${cell('Mobilnummer', mobile(o))}${cell('Vare', esc(o.item_label))}${cell('Type', L.kind[o.kind])}${cell('Pris (ekskl. moms)', dkk(o.price))}${cell('Status', pill(L.ostatus, o.status))}${cell('Oprettet', dt(o.created_at))}${cell('Udløber', o.status === 'pending' && !o.archived_at ? dt(o.expires_at) : '—')}
   ${actions ? cell('Handlinger', buttons(o), 'act') : ''}</tr>`).join('')}</tbody></table></div>`;
 }

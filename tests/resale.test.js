@@ -209,3 +209,29 @@ test('the resale button is only on admin order actions', () => {
   assert.match(orders, /<h2>Salgslog<\/h2>/);
   assert.match(src, /<div class="order-actions">/);
 });
+
+test('Gennemfør after a partial resale leaves the released car available', async () => {
+  const ctx = boot();
+  const live = await listen(ctx);
+  try {
+    const admin = await login(live.base, 'resale-admin@example.test', 'Resale-Admin-Pass-1');
+    const a = await login(live.base, 'resale-a@example.test', 'Resale-Dealer-A-1');
+    const one = (await send(live.base, 'POST', '/api/admin/vehicles', admin, car('PARTVIN000000001', 1000))).json.vehicle;
+    const two = (await send(live.base, 'POST', '/api/admin/vehicles', admin, car('PARTVIN000000002', 2000))).json.vehicle;
+    assert.equal((await send(live.base, 'POST', '/api/shop/cart', a, { vehicle_ids: [one.id, two.id] })).status, 201);
+    const bought = await send(live.base, 'POST', '/api/shop/cart/buy', a, {});
+    assert.equal(bought.status, 201);
+    const orderId = bought.json.order.id;
+    const released = await send(live.base, 'POST', '/api/admin/orders/' + orderId + '/resell', admin, { confirm: true, vehicle_id: one.id, reason: 'én linje' });
+    assert.equal(released.status, 200);
+    assert.equal(ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(one.id).status, 'available');
+    const done = await send(live.base, 'POST', '/api/admin/orders/' + orderId + '/complete', admin, {});
+    assert.equal(done.status, 200);
+    assert.equal(done.json.order.status, 'completed');
+    assert.equal(ctx.db.prepare('SELECT status FROM orders WHERE id=?').get(orderId).status, 'completed');
+    assert.equal(ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(one.id).status, 'available');
+    assert.equal(ctx.db.prepare('SELECT status FROM vehicles WHERE id=?').get(two.id).status, 'sold');
+    assert.equal(ctx.db.prepare('SELECT cancelled_at FROM order_vehicles WHERE order_id=? AND vehicle_id=?').get(orderId, one.id).cancelled_at == null, false);
+    assert.equal(ctx.db.prepare('SELECT cancelled_at FROM order_vehicles WHERE order_id=? AND vehicle_id=?').get(orderId, two.id).cancelled_at, null);
+  } finally { live.server.close(); ctx.close(); }
+});

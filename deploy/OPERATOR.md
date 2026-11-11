@@ -83,6 +83,7 @@ Rules enforced by the process:
 - An administrator password must not equal the email and must not be a placeholder such as `changeme`, `password`, or `password123`. Neither an administrator nor a dealer password may be either password that was published in earlier commits of this repository. Those two values are rejected by a SHA-256 denylist. Their plaintext is not in this tree. Choose a new password.
 - The file is rejected if group or other permission bits are set, if it is larger than 16 KiB, or if it contains any other key.
 - The password and email are not written to stdout or stderr.
+- `OWNER_EMAIL` and `HEAD_ADMIN_EMAILS` grant that tier only to an approved account. A self-signup with one of those emails stays a pending dealer with no staff tier until the owner approves it. No administrator can change another user's email to one of those addresses. If both owner emails are empty, the earliest approved administrator is the owner. Startup does not rewrite that row.
 - Do not pass the password as a `docker compose` argument, a shell argument, or a `curl` command saved in shell history.
 
 `deploy/secrets.env.example` shows the key names with an empty password. Copying it unchanged will not create an admin.
