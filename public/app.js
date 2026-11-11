@@ -878,15 +878,19 @@ async function shopHome() {
   });
   sel('#q').addEventListener('input', debounce(load)); sel('#fu').onchange = load; load();
 }
+function cartThumb(v) {
+  const src = (v.images || []).find((u) => u && !String(u).endsWith('.heic'));
+  return src ? `<img class="cartthumb" src="${esc(src)}" alt="">` : '';
+}
 async function shopCart() {
-  shopShell('/shop/cart', '<div class="pagehead"><h1>Kurv</h1></div><p>Indlæser…</p>');
+  shopShell('/shop/cart', '<div class="cart"><div class="cart-head"><h1>Kurv</h1></div><p>Indlæser…</p></div>');
   let cart;
   try { cart = (await api('GET', '/api/shop/cart')).cart; }
-  catch (e) { return shopShell('/shop/cart', `<div class="err">${esc(e.message)}</div>`); }
+  catch (e) { return shopShell('/shop/cart', `<div class="cart"><div class="err">${esc(e.message)}</div></div>`); }
   setCartCount(cart.count);
-  const lines = cart.vehicles.length ? cart.vehicles.map((v) => `<div class="cartline${v.available ? '' : ' unavailable'}"><div><b>${esc(v.make)} ${esc(v.model)}</b><div class="muted">${esc(v.vin)}${v.available ? '' : ' · ikke længere tilgængelig'}</div></div><div class="cartline-end"><div class="price">${dkk(v.price)} <small>ekskl. moms</small></div><button type="button" class="btn small outline" data-drop="${v.id}">Fjern</button></div></div>`).join('') : '<div class="empty">Kurven er tom.</div>';
-  shopShell('/shop/cart', `<div class="pagehead"><h1>Kurv</h1>${link('/shop', '← Biler')}</div><div id="msg"></div>${lines}
-    ${cart.count ? `<div class="formcard"><p>Pris ekskl. moms: <b>${dkk(cart.price_excl_vat)}</b></p><p>Moms (${cart.vat_rate * 100}%): <b>${dkk(cart.vat)}</b></p><p>I alt inkl. moms: <b>${dkk(cart.total_incl_vat)}</b></p><p><button type="button" class="btn" id="bestil">Bestil samlet</button></p></div>` : ''}`);
+  const lines = cart.vehicles.length ? cart.vehicles.map((v) => `<article class="cartline${v.available ? '' : ' unavailable'}">${cartThumb(v)}<div class="cartline-main"><b>${esc(v.make)} ${esc(v.model)}</b><div class="muted">${esc(v.vin)}${v.available ? '' : ' · ikke længere tilgængelig'}</div></div><div class="cartline-end"><div class="price">${dkk(v.price)} <small>ekskl. moms</small></div><button type="button" class="btn small outline" data-drop="${v.id}">Fjern</button></div></article>`).join('') : '<div class="empty">Kurven er tom.</div>';
+  const summary = cart.count ? `<aside class="cart-summary"><p>Pris ekskl. moms: <b>${dkk(cart.price_excl_vat)}</b></p><p>Moms (${cart.vat_rate * 100}%): <b>${dkk(cart.vat)}</b></p><p class="cart-total">I alt inkl. moms: <b>${dkk(cart.total_incl_vat)}</b></p><button type="button" class="btn" id="bestil">Bestil samlet</button></aside>` : '';
+  shopShell('/shop/cart', `<div class="cart"><div class="cart-head"><h1>Kurv</h1>${link('/shop', '← Biler')}</div><div id="msg"></div><div class="cart-body${cart.count ? '' : ' is-empty'}">${cart.vehicles.length ? `<div class="cart-lines">${lines}</div>` : lines}${summary}</div></div>`);
   setCartCount(cart.count);
   document.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
     try { await api('DELETE', '/api/shop/cart/vehicles/' + b.dataset.drop); shopCart(); }

@@ -187,8 +187,18 @@ test('the shop list adds one car at a time and Bestil samlet places one order', 
   assert.match(shop, /data-drop=/);
   assert.match(shop, /id="cartcount"/);
   assert.match(shop, /Bestil samlet/);
+  assert.match(shop, /class="cart"/);
+  assert.match(shop, /class="cart-head"/);
+  assert.match(shop, /class="cart-summary"/);
+  assert.match(shop, /Pris ekskl\. moms/);
+  assert.match(shop, /I alt inkl\. moms/);
+  assert.match(shop, /← Biler/);
   assert.equal(shop.includes('data-pick'), false);
   assert.equal(shop.includes('cartbar'), false);
+  const cartFn = src.slice(src.indexOf('async function shopCart'), src.indexOf('async function shopVehicle'));
+  const head = cartFn.slice(cartFn.indexOf('class="cart-head"'), cartFn.indexOf('cart-body'));
+  assert.match(head, /Kurv/);
+  assert.match(head, /← Biler/);
   assert.match(src, /\/api\/shop\/cart\/buy/);
   const orders = src.slice(src.indexOf('async function shopOrders'), src.indexOf('async function agreementPage'));
   assert.equal(orders.includes('data-add'), false);
