@@ -9,7 +9,10 @@ const { hashPassword } = require('../src/auth');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'autob2b-'));
 let clock = Date.now();
-const ctx = createApp({ dbFile: path.join(tmp, 't.sqlite'), uploadDir: path.join(tmp, 'up'), now: () => clock, noTimer: true, rateLimit: false });
+const ctx = createApp({
+  dbFile: path.join(tmp, 't.sqlite'), uploadDir: path.join(tmp, 'up'), now: () => clock, noTimer: true, rateLimit: false,
+  env: { SELLER_LEGAL_NAME: 'Test Sælger', SELLER_CVR: '12345678', SELLER_ADDRESS: 'Testvej 1, 8000 Aarhus' },
+});
 let base; let server;
 const ADMIN_PW = 'Test-Admin-Pass-123!';
 
@@ -43,7 +46,7 @@ test.after(() => { server.close(); ctx.close(); });
 async function adminClient() { const c = new Client(); const r = await c.login('admin@example.test', ADMIN_PW); assert.equal(r.status, 200); return c; }
 async function registerDealer(admin, n, approve = true) {
   const email = `dealer${n}@example.test`; const c = new Client();
-  const r = await c.post('/api/auth/register', { company_name: 'Forhandler ' + n, cvr: String(10000000 + n), city: 'Aarhus', email, password: 'Dealer-pass-1234' });
+  const r = await c.post('/api/auth/register', { company_name: 'Forhandler ' + n, cvr: String(10000000 + n), city: 'Aarhus', phone: '12345678', email, password: 'Dealer-pass-1234' });
   assert.equal(r.status, 201);
   const row = ctx.db.prepare('SELECT * FROM users WHERE email=?').get(email);
   assert.equal(row.status, 'pending'); assert.equal(row.role, 'dealer');
@@ -63,7 +66,7 @@ test('login: wrong password rejected, correct accepted, /api/me', async () => {
   assert.equal((await c.login('admin@example.test', 'wrong')).status, 401);
   assert.equal((await c.get('/api/me')).json.user, null);
   assert.equal((await c.login('admin@example.test', ADMIN_PW)).status, 200);
-  const me = await c.get('/api/me'); assert.equal(me.json.user.role, 'admin');
+  const me = await c.get('/api/me'); assert.equal(me.json.user.role, 'admin'); assert.equal(me.json.user.password_hash, undefined);
   assert.equal((await c.post('/api/auth/logout')).status, 200);
   assert.equal((await c.get('/api/admin/stats')).status, 401);
 });
@@ -95,7 +98,12 @@ test('admin: image upload accepts real images, rejects others', async () => {
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
   const ok = await a.req('POST', '/api/admin/uploads', png, { 'content-type': 'application/octet-stream' });
   assert.equal(ok.status, 201); assert.match(ok.json.url, /^\/uploads\/[a-f0-9]{32}\.png$/);
-  const r = await fetch(base + ok.json.url); assert.equal(r.status, 200);
+  const r = await fetch(base + ok.json.url, { headers: { cookie: a.cookie } }); assert.equal(r.status, 200);
+  assert.equal((await fetch(base + ok.json.url)).status, 401);
+  const pending = await registerDealer(a, 90, false);
+  const dealer = await registerDealer(a, 91);
+  assert.equal((await fetch(base + ok.json.url, { headers: { cookie: dealer.c.cookie } })).status, 200);
+  assert.equal((await fetch(base + ok.json.url, { headers: { cookie: pending.c.cookie } })).status, 403);
   const notImg = await a.req('POST', '/api/admin/uploads', Buffer.from('<script>alert(1)</script>'.repeat(3)), { 'content-type': 'text/html' });
   assert.equal(notImg.status, 400);
   const withImg = await a.post('/api/admin/vehicles', car(40, { images: [ok.json.url] }));
@@ -117,7 +125,7 @@ test('admin: create parti with selected cars, notifies dealers, delete parti', a
   assert.equal((await d.c.get('/api/shop/packages')).json.packages.some((x) => x.id === p.json.package.id), true);
   assert.equal((await a.del(`/api/admin/packages/${p.json.package.id}`)).status, 200);
   assert.equal((await a.get('/api/admin/packages')).json.packages.some((x) => x.id === p.json.package.id), false);
-  assert.equal((await a.get(`/api/admin/vehicles/${v1.id}`)).status, 200); // cars survive parti deletion
+  assert.equal((await a.get(`/api/admin/vehicles/${v1.id}`)).status, 404);
 });
 
 test('dealer: register -> pending blocked -> approve -> reserve -> auto-expire frees car', async () => {
@@ -166,6 +174,7 @@ test('dealer: buy now -> order + auto-generated agreement; vehicle sold; ownersh
   assert.equal(b.status, 201); assert.equal(b.json.order.kind, 'buy'); assert.equal(b.json.order.status, 'confirmed');
   const ag = b.json.order.agreement;
   assert.match(ag.number, /^AG-\d{4}-\d{5}$/); assert.equal(ag.price_excl_vat, 200000); assert.equal(ag.vat, 50000); assert.equal(ag.total_incl_vat, 250000);
+  assert.equal(ag.seller.name, 'Test Sælger'); assert.equal(ag.seller.cvr, '12345678'); assert.equal(ag.seller.address, 'Testvej 1, 8000 Aarhus');
   assert.equal(ag.buyer.cvr, '10000005'); assert.equal(ag.items[0].vin, v.vin);
   assert.equal((await a.get(`/api/admin/vehicles/${v.id}`)).json.vehicle.status, 'sold');
   const got = await d.c.get(`/api/orders/${b.json.order.id}`); assert.equal(got.status, 200); assert.equal(got.json.order.agreement.number, ag.number);
@@ -249,11 +258,12 @@ test('non-admins (dealer, pending, anonymous) are blocked from EVERY admin endpo
   const v = (await a.post('/api/admin/vehicles', car(80))).json.vehicle;
   const endpoints = [
     ['GET', '/api/admin/stats'], ['GET', '/api/admin/vehicles'], ['GET', `/api/admin/vehicles/${v.id}`], ['POST', '/api/admin/vehicles', car(81)],
-    ['PUT', `/api/admin/vehicles/${v.id}`, car(80)], ['DELETE', `/api/admin/vehicles/${v.id}`], ['POST', '/api/admin/uploads', Buffer.alloc(20)],
-    ['GET', '/api/admin/packages'], ['POST', '/api/admin/packages', { name: 'x', total_price: 1 }], ['PUT', '/api/admin/packages/1', { name: 'x', total_price: 1 }], ['DELETE', '/api/admin/packages/1'],
-    ['GET', '/api/admin/orders'], ['POST', '/api/admin/orders/1/confirm', {}], ['POST', '/api/admin/orders/1/cancel', {}], ['POST', '/api/admin/orders/1/complete', {}],
-    ['GET', '/api/admin/dealers'], ['POST', `/api/admin/dealers/${pending.id}/approve`, {}], ['POST', `/api/admin/dealers/${pending.id}/reject`, {}],
-    ['POST', '/api/admin/admins', { email: 'evil@example.test', name: 'Evil', password: 'Evil-password-123' }],
+    ['PUT', `/api/admin/vehicles/${v.id}`, car(80)], ['PUT', `/api/admin/vehicles/${v.id}/images`, { image_ids: [] }], ['DELETE', `/api/admin/vehicles/${v.id}`], ['POST', '/api/admin/uploads', Buffer.alloc(20)],
+    ['GET', '/api/admin/packages'], ['GET', '/api/admin/packages?archived=1'], ['POST', '/api/admin/packages', { name: 'x', total_price: 1 }], ['PUT', '/api/admin/packages/1', { name: 'x', total_price: 1 }], ['DELETE', '/api/admin/packages/1'],
+    ['GET', '/api/admin/orders'], ['GET', '/api/admin/orders?archived=1'], ['PUT', '/api/admin/orders/1', { item_label: 'x' }], ['POST', '/api/admin/orders/1/archive', {}], ['POST', '/api/admin/orders/1/restore', {}], ['POST', '/api/admin/orders/1/confirm', {}], ['POST', '/api/admin/orders/1/cancel', {}], ['POST', '/api/admin/orders/1/complete', {}], ['POST', '/api/admin/orders/1/resell', { confirm: true, vehicle_id: 1 }], ['GET', '/api/admin/resale-log'],
+    ['GET', '/api/admin/vehicles?archived=1'], ['DELETE', '/api/admin/archived/vehicles/1'], ['DELETE', '/api/admin/archived/packages/1'], ['DELETE', '/api/admin/archived/orders/1'], ['POST', '/api/admin/packages/1/restore', {}], ['POST', '/api/admin/vehicles/1/restore', {}],
+    ['GET', '/api/admin/dealers'], ['PUT', '/api/admin/dealers/1', { company_name: 'A', cvr: '12345678', city: 'A', name: 'A', email: 'a@example.test' }], ['POST', `/api/admin/dealers/${pending.id}/approve`, {}], ['POST', `/api/admin/dealers/${pending.id}/reject`, {}], ['POST', `/api/admin/dealers/${pending.id}/delete`, { confirm: true }],
+    ['GET', '/api/admin/admins'], ['POST', '/api/admin/admins', { email: 'evil@example.test', name: 'Evil', password: 'Evil-password-123' }], ['POST', '/api/admin/users/1/promote', {}], ['POST', '/api/admin/users/1/demote', {}], ['POST', '/api/admin/users/1/head', { grant: true }],
   ];
   for (const [m, u, b] of endpoints) {
     const call = (c) => (Buffer.isBuffer(b) ? c.req(m, u, b, { 'content-type': 'application/octet-stream' }) : c.req(m, u, b));
@@ -268,7 +278,7 @@ test('non-admins (dealer, pending, anonymous) are blocked from EVERY admin endpo
 
 test('no public admin signup: role/status in register body are ignored; only admin can create admins', async () => {
   const c = new Client();
-  const r = await c.post('/api/auth/register', { company_name: 'Sneaky', cvr: '99999999', city: 'X', email: 'sneaky@example.test', password: 'Sneaky-pass-1234', role: 'admin', status: 'approved' });
+  const r = await c.post('/api/auth/register', { company_name: 'Sneaky', cvr: '99999999', city: 'X', phone: '12345678', email: 'sneaky@example.test', password: 'Sneaky-pass-1234', role: 'admin', status: 'approved' });
   assert.equal(r.status, 201);
   const u = ctx.db.prepare('SELECT role,status FROM users WHERE email=?').get('sneaky@example.test');
   assert.deepEqual({ ...u }, { role: 'dealer', status: 'pending' });
@@ -276,16 +286,31 @@ test('no public admin signup: role/status in register body are ignored; only adm
   const ok = await a.post('/api/admin/admins', { email: 'second@example.test', name: 'Second Admin', password: 'Second-admin-pass-1' });
   assert.equal(ok.status, 201);
   assert.equal(ctx.db.prepare('SELECT role FROM users WHERE email=?').get('second@example.test').role, 'admin');
-  assert.equal((await a.post('/api/admin/admins', { email: 'x@example.test', name: 'X', password: 'short' })).status, 400);
+  assert.equal((await a.post('/api/admin/admins', { email: 'x@example.test', name: 'X', password: 'abc' })).status, 400);
   // registration validation + duplicates
-  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '123', city: 'X', email: 'a@example.test', password: 'Sneaky-pass-1234' })).status, 400);
-  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '12345678', city: 'X', email: 'sneaky@example.test', password: 'Sneaky-pass-1234' })).status, 409);
+  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '123', city: 'X', phone: '12345678', email: 'a@example.test', password: 'Sneaky-pass-1234' })).status, 400);
+  assert.equal((await c.post('/api/auth/register', { company_name: 'A', cvr: '12345678', city: 'X', phone: '12345678', email: 'sneaky@example.test', password: 'Sneaky-pass-1234' })).status, 409);
 });
 
 test('CSRF guard: state-changing request without custom header is refused', async () => {
   const a = await adminClient();
   const r = await fetch(base + '/api/admin/vehicles', { method: 'POST', headers: { cookie: a.cookie, 'content-type': 'application/json' }, body: JSON.stringify(car(99)) });
   assert.equal(r.status, 403);
+});
+
+test('dealer cannot cancel or read another dealers order; logged-out purchase is refused', async () => {
+  const a = await adminClient();
+  const d1 = await registerDealer(a, 92);
+  const d2 = await registerDealer(a, 93);
+  const v = (await a.post('/api/admin/vehicles', car(92))).json.vehicle;
+  const order = (await d1.c.post(`/api/shop/vehicles/${v.id}/reserve`)).json.order;
+  assert.equal((await d2.c.post(`/api/shop/orders/${order.id}/cancel`)).status, 404);
+  assert.equal((await d2.c.get(`/api/orders/${order.id}`)).status, 404);
+  assert.equal((await new Client().post(`/api/shop/vehicles/${v.id}/buy`)).status, 401);
+  assert.equal((await new Client().post('/api/auth/password', { current_password: 'x', new_password: 'yyyyyyyyyy' })).status, 401);
+  assert.equal((await a.get('/api/health')).status, 200);
+  assert.deepEqual((await a.get('/api/health')).json, { ok: true });
+  assert.equal((await d1.c.get(`/api/shop/orders`)).json.orders.find((o) => o.id === order.id).status, 'pending');
 });
 
 test('SPA routes and static assets are served', async () => {
