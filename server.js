@@ -35,7 +35,8 @@ const { app, db } = createApp({
 });
 
 if (process.env.REQUIRE_ADMIN === '1') {
-  const n = Number(db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role='admin' AND status='approved'`).get().n);
+  const ownerEmail = String(bootstrapEnv.OWNER_EMAIL || bootstrapEnv.BOOTSTRAP_ADMIN_EMAIL || '').trim().toLowerCase();
+  const n = Number(db.prepare(`SELECT COUNT(*) AS n FROM users WHERE (role='admin' AND status='approved') OR (? <> '' AND lower(email)=?)`).get(ownerEmail, ownerEmail).n);
   if (!n) {
     console.error('Refusing to start: no approved admin exists. Put BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD in the secrets file and start against an empty database, or restore a database that already has an admin. No default account was created.');
     try { db.close(); } catch { /* ignore */ }

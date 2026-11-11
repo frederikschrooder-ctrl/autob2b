@@ -88,9 +88,15 @@ document.addEventListener('submit', async (e) => {
 });
 window.addEventListener('popstate', render);
 const link = (href, text, cls = '') => `<a data-link href="${esc(href)}" class="${cls}">${text}</a>`;
+function isStaff(u) {
+  if (!u) return false;
+  if (u.staff === true) return true;
+  if (u.staff === false) return false;
+  return u.role === 'admin';
+}
 function brandHome() {
   if (!S.user) return '/';
-  return S.user.role === 'admin' ? '/dashboard' : '/shop';
+  return isStaff(S.user) ? '/dashboard' : '/shop';
 }
 function brandLink() {
   const label = esc(BRAND_MARK);
@@ -105,7 +111,7 @@ async function logout() { try { await api('POST', '/api/auth/logout', {}); } cat
 function landing() {
   $app.innerHTML = `
   <header class="banner hero-banner">
-  <div class="topbar">${brandLink()}<div>${S.user ? btnLink(S.user.role === 'admin' ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
+  <div class="topbar">${brandLink()}<div>${S.user ? btnLink(isStaff(S.user) ? '/dashboard' : '/shop', 'Til platformen') : btnLink('/login', 'Log ind', 'outline')}</div></div>
   <section class="hero">
     <div class="card hero-card">
     <div class="badge">Lukket B2B Platform — Kun for Forhandlere</div>
@@ -155,7 +161,7 @@ function authPage(kind) {
       if (!isLogin && String(d.phone || '').replace(/\D/g, '').length < 8) throw new Error('Mobilnummer skal være 8-15 cifre');
       if (isLogin) {
         const r = await api('POST', '/api/auth/login', d); S.user = r.user;
-        go(r.user.role === 'admin' ? '/dashboard' : '/shop');
+        go(isStaff(r.user) ? '/dashboard' : '/shop');
       } else {
         const r = await api('POST', '/api/auth/register', d);
         f.innerHTML = `<h1>Tak for din ansøgning</h1><div class="ok">${esc(r.message)}</div><p class="muted">Du kan logge ind, men får først adgang til platformen, når din konto er godkendt.</p>${btnLink('/login', 'Til login')}`;
@@ -696,6 +702,27 @@ async function orderEdit(id) {
 }
 
 // ---------- admin: dealers ----------
+function tierLabel(t) {
+  return { owner: 'Ejer', head: 'Hovedadmin', admin: 'Admin', dealer: 'Forhandler' }[t] || 'Forhandler';
+}
+function tierBadge(t) {
+  const tier = t || 'dealer';
+  return `<span class="tier ${esc(tier)}">${esc(tierLabel(tier))}</span>`;
+}
+function canManageAdmins() {
+  return !!(S.user && (S.user.can_manage_admins === true || (S.user.can_manage_admins == null && isStaff(S.user))));
+}
+function canGrantHead() { return !!(S.user && S.user.can_grant_head); }
+function tierButtons(d) {
+  const tier = d.tier || (d.role === 'admin' ? 'admin' : 'dealer');
+  if (tier === 'owner') return '';
+  let html = '';
+  if (canGrantHead() && tier === 'head') html += `<button type="button" class="btn small outline" data-head="0" data-id="${d.id}">Fjern hovedadmin</button>`;
+  else if (canGrantHead()) html += `<button type="button" class="btn small outline" data-head="1" data-id="${d.id}">Gør til hovedadmin</button>`;
+  if (canManageAdmins() && tier === 'dealer') html += `<button type="button" class="btn small" data-promote="${d.id}">Gør til admin</button>`;
+  if (canManageAdmins() && tier === 'admin') html += `<button type="button" class="btn small danger" data-demote="${d.id}">Fjern admin</button>`;
+  return html;
+}
 function foldDa(value) {
   return String(value || '').toLocaleLowerCase('da-DK').replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa');
 }
@@ -719,7 +746,8 @@ function filterDealers(dealers, opts) {
 }
 async function dealersPage() {
   adminShell('/dashboard/dealers', '<h1>Indlæser…</h1>');
-  const { dealers } = await api('GET', '/api/admin/dealers');
+  const [{ dealers }, staff] = await Promise.all([api('GET', '/api/admin/dealers'), api('GET', '/api/admin/admins')]);
+  const admins = staff.admins || [];
   let seenFirst = false;
   const filters = { q: '', status: 'all', seen: 'all' };
   const paint = () => {
@@ -732,19 +760,24 @@ async function dealersPage() {
     if (statusEl) filters.status = statusEl.value;
     if (seenEl) filters.seen = seenEl.value;
     const matched = filterDealers(dealers, filters);
+    const matchedAdmins = filterDealers(admins, filters);
     const rows = seenFirst ? [...matched].sort((a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')) || b.id - a.id) : matched;
+    const adminRows = seenFirst ? [...matchedAdmins].sort((a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')) || b.id - a.id) : matchedAdmins;
     const seenCell = (d) => esc(sidstAktiv(d.last_seen_at)).replace(' kl. ', '<br>kl. ');
-    const sect = (title, st, list, acts) => `<h2>${title} (${list.length})</h2>${list.length ? `<div class="tablewrap"><table class="dealers"><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>Mobilnummer</th><th>E-mail</th><th>Ansøgt</th><th>Sidst aktiv</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${list.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name)}</b>`)}${cell('CVR', esc(d.cvr))}${cell('By', esc(d.city))}${cell('Mobilnummer', d.phone ? telLink(d.phone) : '—')}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Sidst aktiv', seenCell(d))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', acts(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
+    const sect = (title, st, list, acts) => `<h2>${title} (${list.length})</h2>${list.length ? `<div class="tablewrap"><table class="dealers"><thead><tr><th>Firma</th><th>CVR</th><th>By</th><th>Mobilnummer</th><th>E-mail</th><th>Ansøgt</th><th>Sidst aktiv</th><th>Status</th><th>Handlinger</th></tr></thead><tbody>${list.map((d) => `<tr>${cell('Firma', `<b>${esc(d.company_name || d.name)}</b> ${tierBadge(d.tier)}`)}${cell('CVR', esc(d.cvr || '—'))}${cell('By', esc(d.city || '—'))}${cell('Mobilnummer', d.phone ? telLink(d.phone) : '—')}${cell('E-mail', esc(d.email))}${cell('Ansøgt', dt(d.created_at))}${cell('Sidst aktiv', seenCell(d))}${cell('Status', pill(L.dstatus, d.status))}${cell('Handlinger', (d.tier === 'owner' || d.tier === 'head' ? '' : acts(d)) + tierButtons(d), 'act')}</tr>`).join('')}</tbody></table></div>` : `<div class="tablewrap"><div class="empty">Ingen.</div></div>`}<br>`;
+    const adminTable = adminRows.length ? `<h2>Administratorer (${adminRows.length})</h2><div class="tablewrap"><table class="dealers"><thead><tr><th>Navn</th><th>E-mail</th><th>Sidst aktiv</th><th>Rolle</th><th>Handlinger</th></tr></thead><tbody>${adminRows.map((d) => `<tr>${cell('Navn', `<b>${esc(d.name)}</b>`)}${cell('E-mail', esc(d.email))}${cell('Sidst aktiv', seenCell(d))}${cell('Rolle', tierBadge(d.tier))}${cell('Handlinger', tierButtons(d) || '—', 'act')}</tr>`).join('')}</tbody></table></div>` : '';
     const by = (s) => rows.filter((d) => d.status === s);
     const show = (st) => filters.status === 'all' || filters.status === st;
-    const sections = rows.length ? `${show('pending') ? sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`) : ''}${show('approved') ? sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`) : ''}${show('rejected') ? sect('Afviste', 'rejected', by('rejected'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button>`) : ''}` : '<div class="tablewrap"><div class="empty">Ingen forhandlere matcher</div></div>';
+    const dealerSections = `${show('pending') ? sect('Afventende Ansøgninger', 'pending', by('pending'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`) : ''}${show('approved') ? sect('Godkendte Forhandlere', 'approved', by('approved'), (d) => `${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small danger" data-a="reject" data-id="${d.id}" aria-label="Afvis ${esc(d.company_name)}">Afvis</button>`) : ''}${show('rejected') ? sect('Afviste', 'rejected', by('rejected'), (d) => `<span class="dealer-actions">${btnLink('/dashboard/dealers/' + d.id + '/edit', 'Rediger', 'small outline')}<button type="button" class="btn small outline" data-a="approve" data-id="${d.id}" aria-label="Godkend ${esc(d.company_name)}">Godkend</button><button type="button" class="btn small danger" data-purge-dealer="${d.id}" data-name="${esc(d.company_name || d.name || '')}">Slet</button></span>`) : ''}`;
+    const sections = (rows.length || adminRows.length) ? dealerSections : '<div class="tablewrap"><div class="empty">Ingen forhandlere matcher</div></div>';
     adminShell('/dashboard/dealers', `<div class="pagehead"><h1>Forhandlerstyring</h1><button type="button" class="btn small outline" id="sortseen" aria-pressed="${seenFirst ? 'true' : 'false'}">${seenFirst ? 'Nyeste ansøgninger først' : 'Sidst aktiv først'}</button></div>
       <div class="filters dealer-filters"><input id="dq" type="search" placeholder="Søg navn, firma, CVR, e-mail, telefon eller by" value="${esc(filters.q)}" aria-label="Søg forhandlere"><select id="dstatus" aria-label="Status"><option value="all">Alle</option><option value="approved">Aktiv</option><option value="pending">Afventer</option><option value="rejected">Afvist</option></select><select id="dseen" aria-label="Sidst aktiv"><option value="all">Alle</option><option value="never">Aldrig logget ind</option><option value="7d">Aktiv seneste 7 dage</option><option value="30d">Ikke aktiv i 30+ dage</option></select></div>
-      <p class="muted" id="dcount">${rows.length} forhandlere</p><div id="msg"></div>
+      <p class="muted" id="dcount">${rows.length + adminRows.length} forhandlere</p><div id="msg"></div>
       ${sections}
-      <form id="af" class="formcard" novalidate><h2>Tilføj Administrator</h2><p class="muted" style="margin-top:0">Kun administratorer kan oprette nye administratorer.</p>
+      ${adminTable}
+      ${canManageAdmins() ? `<form id="af" class="formcard" novalidate><h2>Opret admin</h2><p class="muted" style="margin-top:0">Kun ejeren og en hovedadmin kan oprette en almindelig administrator.</p>
         <div class="grid2"><div><label>Navn</label><input name="name" required></div><div><label>E-mail</label><input type="email" name="email" required></div><div><label>Adgangskode (min. 4 tegn)</label><input type="password" name="password" minlength="4" required autocomplete="new-password"></div></div>
-        <button class="btn" style="margin-top:1rem">Opret Administrator</button><div id="am"></div></form>`);
+        <button class="btn" style="margin-top:1rem">Opret admin</button><div id="am"></div></form>` : ''}`);
     document.getElementById('dstatus').value = filters.status;
     document.getElementById('dseen').value = filters.seen;
     const search = document.getElementById('dq');
@@ -754,10 +787,28 @@ async function dealersPage() {
     if (keepFocus) { search.focus(); if (caret != null) search.setSelectionRange(caret, caret); }
     document.querySelector('.main').addEventListener('click', async (e) => {
       if (e.target.closest('#sortseen')) { seenFirst = !seenFirst; paint(); return; }
-      const b = e.target.closest('[data-a]'); if (!b) return;
-      try { await api('POST', `/api/admin/dealers/${b.dataset.id}/${b.dataset.a}`, {}); dealersPage(); } catch (err) { showErr(sel('#msg'), err); }
+      const head = e.target.closest('[data-head]');
+      const promote = e.target.closest('[data-promote]');
+      const demote = e.target.closest('[data-demote]');
+      const purge = e.target.closest('[data-purge-dealer]');
+      const b = e.target.closest('[data-a]');
+      try {
+        if (head) { await api('POST', `/api/admin/users/${head.dataset.id}/head`, { grant: head.dataset.head === '1' }); dealersPage(); return; }
+        if (promote) { if (!confirm('Gør brugeren til administrator?')) return; await api('POST', `/api/admin/users/${promote.dataset.promote}/promote`, {}); dealersPage(); return; }
+        if (demote) { if (!confirm('Fjern administratoradgangen? Brugeren bliver forhandler. Biler, ordrer og aftaler ændres ikke.')) return; await api('POST', `/api/admin/users/${demote.dataset.demote}/demote`, {}); dealersPage(); return; }
+        if (purge) {
+          if (!confirm(`Slet den afviste ansøger "${purge.dataset.name || ''}"? Dette kan ikke fortrydes.`)) return;
+          await api('POST', `/api/admin/dealers/${purge.dataset.purgeDealer}/delete`, { confirm: true });
+          dealersPage();
+          return;
+        }
+        if (!b) return;
+        await api('POST', `/api/admin/dealers/${b.dataset.id}/${b.dataset.a}`, {});
+        dealersPage();
+      } catch (err) { showErr(sel('#msg'), err); }
     });
-    sel('#af').addEventListener('submit', async (e) => {
+    const adminForm = sel('#af');
+    if (adminForm) adminForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fields = Object.fromEntries(new FormData(e.target));
       if (String(fields.password || '').length < 4) return showErr(sel('#am'), new Error('Adgangskoden skal være mindst 4 tegn'));
@@ -899,11 +950,11 @@ async function shopOrders() {
 
 // ---------- agreement ----------
 async function agreementPage(id) {
-  const wrapper = (inner) => (S.user.role === 'admin' ? adminShell('/dashboard/orders', inner) : shopShell('/shop/orders', inner));
+  const wrapper = (inner) => (isStaff(S.user) ? adminShell('/dashboard/orders', inner) : shopShell('/shop/orders', inner));
   wrapper('<p>Indlæser…</p>');
   let o; try { o = (await api('GET', '/api/orders/' + id)).order; } catch (e) { return wrapper(`<div class="err">${esc(e.message)}</div>`); }
   const a = o.agreement; if (!a) return wrapper('<div class="notice">Denne ordre har endnu ingen købsaftale (kun reservation).</div>');
-  wrapper(`<p class="noprint">${link(S.user.role === 'admin' ? '/dashboard/orders' : '/shop/orders', '← Tilbage til ordrer')} · <a href="#" id="pr">Print</a></p>
+  wrapper(`<p class="noprint">${link(isStaff(S.user) ? '/dashboard/orders' : '/shop/orders', '← Tilbage til ordrer')} · <a href="#" id="pr">Print</a></p>
   <div class="agreement"><h1>Købsaftale</h1><p class="muted">Aftalenr. <b>${esc(a.number)}</b> · ${dt(a.date)}</p>
   <h3>Sælger</h3><p>${sellerBlock(a.seller)}</p>
   <h3>Køber</h3><p>${esc(a.buyer.company)}<br>CVR: ${esc(a.buyer.cvr)} · ${esc(a.buyer.city)}<br>Kontakt: ${esc(a.buyer.contact)} (${esc(a.buyer.email)})${a.buyer.phone ? `<br>Mobilnummer: ${telLink(a.buyer.phone)}` : ''}</p>
@@ -924,7 +975,7 @@ function passwordPage() {
       <button class="btn" type="submit">Gem ny adgangskode</button>
       <div id="pm"></div>
     </form>`;
-  if (S.user.role === 'admin') adminShell('/account/password', inner);
+  if (isStaff(S.user)) adminShell('/account/password', inner);
   else if (S.user.role === 'dealer' && S.user.status === 'approved') shopShell('/shop', inner);
   else {
     $app.innerHTML = `<header class="shopbar">${brandLink()}<div class="sp"><span>${esc(S.user.email)}</span><button type="button" id="lo">Log Ud</button></div></header><main class="shopmain">${inner}</main>`;
@@ -1001,7 +1052,7 @@ async function dealerEdit(id) {
 }
 
 async function profilePage() {
-  if (!S.user || S.user.role !== 'dealer') return go(S.user && S.user.role === 'admin' ? '/dashboard' : '/login', true);
+  if (!S.user || S.user.role !== 'dealer') return go(S.user && isStaff(S.user) ? '/dashboard' : '/login', true);
   const minPw = Number(S.user.password_min_length) || 4;
   const inner = `<div class="pagehead"><h1>Profil</h1></div><div id="msg"></div>
     <form id="pf" class="formcard" novalidate style="max-width:32rem">
@@ -1056,14 +1107,14 @@ async function render() {
     if (S.user === null && !S.loaded) { S.user = (await api('GET', '/api/me')).user; S.loaded = true; }
     let m;
     if (path === '/') return landing();
-    if (path === '/login' || path === '/register') { if (S.user) return go(S.user.role === 'admin' ? '/dashboard' : '/shop', true); return authPage(path.slice(1)); }
+    if (path === '/login' || path === '/register') { if (S.user) return go(isStaff(S.user) ? '/dashboard' : '/shop', true); return authPage(path.slice(1)); }
     if (!S.user) return go('/login', true);
     if (path === '/adgangskode' || path === '/account/adgangskode') return go(S.user.role === 'dealer' ? '/account/profile#skift-adgangskode' : '/account/password', true);
     if (path === '/account/password') return S.user.role === 'dealer' ? go('/account/profile#skift-adgangskode', true) : passwordPage();
     if (path === '/account/profile') return profilePage();
     if ((m = path.match(/^\/agreement\/(\d+)$/))) return agreementPage(m[1]);
     if (path.startsWith('/dashboard')) {
-      if (S.user.role !== 'admin') return go('/shop', true);
+      if (!isStaff(S.user)) return go('/shop', true);
       if (path === '/dashboard') return dashboard();
       if (path === '/dashboard/vehicles') return vehiclesPage();
       if (path === '/dashboard/vehicles/new') return vehicleForm();
@@ -1077,7 +1128,7 @@ async function render() {
       return go('/dashboard', true);
     }
     if (path.startsWith('/shop')) {
-      if (S.user.role === 'admin') return go('/dashboard', true);
+      if (isStaff(S.user)) return go('/dashboard', true);
       if (S.user.status !== 'approved') return holdPage();
       if (path === '/shop') return shopHome();
       if (path === '/shop/cart') return shopCart();

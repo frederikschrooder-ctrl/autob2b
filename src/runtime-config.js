@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const { SELLER_KEYS } = require('./seller-identity');
 
 const BOOTSTRAP_KEYS = ['BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'BOOTSTRAP_ADMIN_NAME'];
-const ALLOWED_SECRET_KEYS = BOOTSTRAP_KEYS.concat(SELLER_KEYS);
+const TIER_KEYS = ['OWNER_EMAIL', 'HEAD_ADMIN_EMAILS'];
+const ALLOWED_SECRET_KEYS = BOOTSTRAP_KEYS.concat(TIER_KEYS, SELLER_KEYS);
 
 function assertLoopbackHost(host) {
   if (String(host || '') !== '127.0.0.1') {
@@ -58,6 +59,8 @@ function loadBootstrapConfig(env) {
       BOOTSTRAP_ADMIN_EMAIL: src.BOOTSTRAP_ADMIN_EMAIL || '',
       BOOTSTRAP_ADMIN_PASSWORD: typeof src.BOOTSTRAP_ADMIN_PASSWORD === 'string' ? src.BOOTSTRAP_ADMIN_PASSWORD : '',
       BOOTSTRAP_ADMIN_NAME: src.BOOTSTRAP_ADMIN_NAME || '',
+      OWNER_EMAIL: src.OWNER_EMAIL || '',
+      HEAD_ADMIN_EMAILS: src.HEAD_ADMIN_EMAILS || '',
       ...sellerFields(src),
     };
   }
@@ -80,6 +83,8 @@ function loadBootstrapConfig(env) {
     BOOTSTRAP_ADMIN_EMAIL: parsed.BOOTSTRAP_ADMIN_EMAIL || '',
     BOOTSTRAP_ADMIN_PASSWORD: typeof parsed.BOOTSTRAP_ADMIN_PASSWORD === 'string' ? parsed.BOOTSTRAP_ADMIN_PASSWORD : '',
     BOOTSTRAP_ADMIN_NAME: parsed.BOOTSTRAP_ADMIN_NAME || '',
+    OWNER_EMAIL: parsed.OWNER_EMAIL || '',
+    HEAD_ADMIN_EMAILS: parsed.HEAD_ADMIN_EMAILS || '',
     ...sellerFields(parsed),
   };
 }

@@ -51,7 +51,7 @@ sudo stat -c '%A %U %G %F' /srv/autob2b/secrets.env
 sudo awk -F= '/^[A-Za-z_]/{print $1}' /srv/autob2b/secrets.env
 ```
 
-Expected mode is `-rw-------` and owner `root root`. Expected keys are `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, optionally `BOOTSTRAP_ADMIN_NAME`, and the three seller lines `SELLER_LEGAL_NAME`, `SELLER_CVR`, and `SELLER_ADDRESS`. No other key is accepted. Do not add an email or phone key.
+Expected mode is `-rw-------` and owner `root root`. Expected keys are `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, optionally `BOOTSTRAP_ADMIN_NAME`, optionally `OWNER_EMAIL`, optionally `HEAD_ADMIN_EMAILS`, and the three seller lines `SELLER_LEGAL_NAME`, `SELLER_CVR`, and `SELLER_ADDRESS`. No other key is accepted. Do not add a seller email or phone key. `HEAD_ADMIN_EMAILS=jan@jan.dk` makes that login a head admin at runtime and does not rewrite the user row.
 
 Without the three seller lines, the process still starts and reservations still work, but a buy returns 503 and does not write an agreement. The values for this company are in `deploy/OPERATOR.md`. Adding them does not rewrite an agreement that is already stored, and it does not open the public site. Public maintenance stays until that is decided separately.
 

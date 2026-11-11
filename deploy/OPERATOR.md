@@ -68,6 +68,8 @@ Allowed keys, and no others:
 BOOTSTRAP_ADMIN_EMAIL=<operator email>
 BOOTSTRAP_ADMIN_PASSWORD=<unique password, 4 to 200 characters>
 BOOTSTRAP_ADMIN_NAME=<display name, optional>
+OWNER_EMAIL=<optional; defaults to BOOTSTRAP_ADMIN_EMAIL>
+HEAD_ADMIN_EMAILS=jan@jan.dk
 SELLER_LEGAL_NAME=Højbogaard Biler
 SELLER_CVR=14952705
 SELLER_ADDRESS=Teknologiparken 4, 9440 Aabybro, Denmark

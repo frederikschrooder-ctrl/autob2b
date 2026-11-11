@@ -117,7 +117,13 @@ label{display:block;font-weight:600;font-size:.8rem;letter-spacing:.01em;color:v
 .filters input{flex:2;min-width:220px}.filters select{flex:1;min-width:170px;width:auto}
 .dealer-filters input,.dealer-filters select{min-width:0;flex:1 1 12rem}
 .order-actions,.order-row-actions,.resale-actions{display:flex;flex-direction:column;align-items:flex-start;gap:.45rem}
+.resale-actions .btn{white-space:normal;height:auto;min-height:44px;line-height:1.25;max-width:9.5rem;text-align:center}
 .row-actions{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}
+.tier{display:inline-block;margin-left:.35rem;border-radius:99px;padding:.12rem .5rem;font-size:.75rem;font-weight:700;vertical-align:middle}
+.tier.owner{background:#056b57;color:#fafffe}
+.tier.head{background:#6cb757;color:#262e36}
+.tier.admin{background:#e7f3e4;color:#056b57}
+.tier.dealer{background:#eef1ef;color:#262e36}
 .modal{position:fixed;inset:0;z-index:40;background:rgba(38,46,54,.45);display:flex;align-items:flex-end;justify-content:center;padding:1rem}
 .modal[hidden]{display:none}
 .dialog{background:var(--surface);color:var(--ink);border-radius:16px;padding:1.2rem 1.15rem;width:100%;max-width:32rem;box-shadow:0 16px 40px rgba(38,46,54,.18)}
@@ -147,15 +153,17 @@ table{border-collapse:collapse;width:100%;font-size:.92rem}
   table.dealers th:nth-child(2){width:10%}
   table.dealers th:nth-child(3){width:8%}
   table.dealers th:nth-child(4){width:11%}
-  table.dealers th:nth-child(5){width:15%}
-  table.dealers th:nth-child(6){width:12%}
-  table.dealers th:nth-child(7){width:12%}
-  table.dealers th:nth-child(8){width:9%}
-  table.dealers th:nth-child(9){width:11%}
+  table.dealers th:nth-child(5){width:13%}
+  table.dealers th:nth-child(6){width:10%}
+  table.dealers th:nth-child(7){width:10%}
+  table.dealers th:nth-child(8){width:8%}
+  table.dealers th:nth-child(9){width:18%}
 }
 th{background:var(--slate-wash);text-align:left;padding:.75rem .85rem;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate-700);white-space:nowrap}
 td{padding:.75rem .85rem;border-top:1px solid var(--b);vertical-align:middle}
 td.act{min-width:150px}td.act>*{margin:0 .3rem .3rem 0}
+.dealer-actions{display:inline-flex;flex-wrap:wrap;gap:.35rem;align-items:center;max-width:100%}
+.dealer-actions .btn{width:auto;margin:0;white-space:nowrap}
 .thumb{width:44px;height:32px;object-fit:cover;border-radius:6px;background:var(--g100)}
 .pill{display:inline-block;padding:.15rem .6rem;border-radius:99px;font-size:.78rem;font-weight:700}
 .pill.available,.pill.approved,.pill.confirmed,.pill.completed{background:var(--green-soft);color:var(--deep)}
@@ -194,6 +202,8 @@ td.act{min-width:150px}td.act>*{margin:0 .3rem .3rem 0}
   .tablewrap td.act{flex-direction:column;align-items:stretch}
   .tablewrap td.act .celllabel{flex:none}
   .tablewrap td.act .btn{width:100%}
+  .tablewrap td.act .dealer-actions{display:flex;flex-direction:column;align-items:stretch;width:100%}
+  .tablewrap td.act .dealer-actions .btn{width:100%}
   .recent-order{flex-direction:column;align-items:stretch}
   .recent-actions .btn{flex:1 1 auto}
   .archive-actions{flex-flow:row nowrap;align-items:center}
